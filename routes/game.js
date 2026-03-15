@@ -11,7 +11,7 @@ const {
   getNewsScreen, getCharacterScreen, getSetupScreen, getDragonScreen,
   getLevelUpScreen, getForestEventScreen, getRescueOpportunityScreen,
   getNearDeathWaitingScreen, getNpcRescueScreen, getNearDeathScreen,
-  renderBanner, getCrierScreen,
+  renderBanner, getCrierScreen, getTrainingScreen, getTavernDrinkScreen,
 } = require('../game/engine');
 
 const router = express.Router();
@@ -123,8 +123,9 @@ router.post('/action', ar(async (req, res) => {
     case 'forest': {
       if (player.dead)
         return res.json({ ...getTownScreen(player), pendingMessages: [`\`@You are dead! Come back tomorrow.`] });
-      if (player.fights_left <= 0)
-        return res.json({ ...getTownScreen(player), pendingMessages: [`\`@You have no forest fights left today!`] });
+      const forestStamina = player.stamina ?? player.fights_left ?? 10;
+      if (forestStamina <= 0)
+        return res.json({ ...getTownScreen(player), pendingMessages: [`\`@You are too exhausted to enter the forest! Rest at the tavern.`] });
 
       // Check if any player is near death — chance to encounter them first
       const nearDeathList = await getNearDeathPlayers(player.id);
@@ -134,8 +135,8 @@ router.post('/action', ar(async (req, res) => {
         return res.json({ ...getRescueOpportunityScreen(player, victim), pendingMessages });
       }
 
-      // Consume one forest trip
-      await updatePlayer(player.id, { fights_left: player.fights_left - 1 });
+      // Consume one stamina (replaces fights_left)
+      await updatePlayer(player.id, { stamina: forestStamina - 1 });
       player = await getPlayer(player.id);
 
       // 30% chance of a non-combat forest event
@@ -743,9 +744,10 @@ router.post('/action', ar(async (req, res) => {
 
     // ── FOREST DEEPER ─────────────────────────────────────────────────────
     case 'forest_deeper': {
-      if (player.fights_left <= 0)
-        return res.json({ ...getTownScreen(player), pendingMessages: [`\`@No forest fights left today!`] });
-      await updatePlayer(player.id, { fights_left: player.fights_left - 1 });
+      const deeperStamina = player.stamina ?? player.fights_left ?? 10;
+      if (deeperStamina <= 0)
+        return res.json({ ...getTownScreen(player), pendingMessages: [`\`@You are too exhausted to go deeper!`] });
+      await updatePlayer(player.id, { stamina: deeperStamina - 1 });
       player = await getPlayer(player.id);
 
       const depth = (req.session.forestDepth || 0) + 1;
@@ -871,6 +873,138 @@ router.post('/action', ar(async (req, res) => {
           `\`7Even a Death Knight needs more than a stare to shake this one.`,
         ]});
       }
+    }
+
+    // ── TRAINING GROUNDS ──────────────────────────────────────────────────
+    case 'training':
+      return res.json({ ...getTrainingScreen(player), pendingMessages });
+
+    case 'training_fight':
+    case 'training_spar': {
+      const stam = player.stamina ?? player.fights_left ?? 10;
+      if (stam <= 0)
+        return res.json({ ...getTrainingScreen(player), pendingMessages: [`\`@You are too exhausted to train. Drink at the tavern to recover stamina.`] });
+      const trainedToday = player.training_today || 0;
+      if (trainedToday >= 5)
+        return res.json({ ...getTrainingScreen(player), pendingMessages: [`\`7You've already trained five times today. Come back tomorrow.`] });
+
+      const isSpar = action === 'training_spar';
+      const expGain = isSpar ? player.level * 20 : player.level * 12;
+      const updates = {
+        stamina: stam - 1,
+        training_today: trainedToday + 1,
+        exp: Number(player.exp) + expGain,
+      };
+
+      const msgs = [];
+      if (isSpar) {
+        const sparDmg = 1 + Math.floor(Math.random() * 5);
+        const newHp = Math.max(1, player.hit_points - sparDmg);
+        updates.hit_points = newHp;
+        msgs.push(`\`7You spar hard with a recruit. They land a few blows — you lose ${sparDmg} HP.`);
+        msgs.push(`\`0You gain ${expGain.toLocaleString()} experience from the session!`);
+      } else {
+        msgs.push(`\`7You pummel the training dummy until your arms ache.`);
+        msgs.push(`\`0You gain ${expGain.toLocaleString()} experience from the drill!`);
+      }
+
+      await updatePlayer(player.id, updates);
+
+      // Level-up check
+      player = await getPlayer(player.id);
+      const lvUp = checkLevelUp(player);
+      if (lvUp) {
+        await updatePlayer(player.id, lvUp.updates);
+        await addNews(`\`$${player.handle}\`% has reached level \`$${lvUp.newLevel}\`%!`);
+        player = await getPlayer(player.id);
+        msgs.push(`\`$*** You feel stronger! You have advanced to level ${lvUp.newLevel}! ***`);
+      }
+
+      return res.json({ ...getTrainingScreen(player), pendingMessages: msgs });
+    }
+
+    // ── TAVERN DRINKS ─────────────────────────────────────────────────────
+    case 'tavern_drink':
+      return res.json({ ...getTavernDrinkScreen(player), pendingMessages });
+
+    case 'tavern_drink_order': {
+      const drink = (param || '').toLowerCase();
+      const DRINKS = { ale: { cost: 10, stamina: 2, name: 'Pint of Ale' }, wine: { cost: 25, stamina: 3, name: 'Cup of Wine' }, spirits: { cost: 50, stamina: 4, name: 'Fine Spirits' } };
+      const chosen = DRINKS[drink];
+      if (!chosen)
+        return res.json({ ...getTavernDrinkScreen(player), pendingMessages: [`\`7Unknown drink.`] });
+      const drinksToday = player.drinks_today || 0;
+      if (drinksToday >= 3)
+        return res.json({ ...getTavernDrinkScreen(player), pendingMessages: [`\`7You've had enough drinks today. Hrok cuts you off.`] });
+      if (Number(player.gold) < chosen.cost)
+        return res.json({ ...getTavernDrinkScreen(player), pendingMessages: [`\`@Not enough gold! A ${chosen.name} costs ${chosen.cost} gold.`] });
+      const curStam = player.stamina ?? player.fights_left ?? 10;
+      const newStam = Math.min(10, curStam + chosen.stamina);
+      const actualGain = newStam - curStam;
+      await updatePlayer(player.id, {
+        gold: Number(player.gold) - chosen.cost,
+        stamina: newStam,
+        drinks_today: drinksToday + 1,
+      });
+      player = await getPlayer(player.id);
+      const msgs = [`\`6Hrok slides you a ${chosen.name}. You drink deeply.`];
+      if (actualGain > 0) msgs.push(`\`0You feel refreshed! Stamina restored by ${actualGain}. (${newStam}/10)`);
+      else msgs.push(`\`7Your stamina was already full, but the drink was good.`);
+      return res.json({ ...getTavernDrinkScreen(player), pendingMessages: msgs });
+    }
+
+    // ── TAVERN GAMBLE ─────────────────────────────────────────────────────
+    case 'tavern_gamble': {
+      const bet = Math.max(0, parseInt(param) || 0);
+      if (bet < 10)
+        return res.json({ ...getTavernScreen(player, await getAllPlayers()), pendingMessages: [`\`7Minimum bet is 10 gold.`] });
+      if (bet > Number(player.gold))
+        return res.json({ ...getTavernScreen(player, await getAllPlayers()), pendingMessages: [`\`@You don't have ${bet.toLocaleString()} gold to bet!`] });
+      const maxBet = Math.min(500 + player.level * 50, Number(player.gold));
+      const cappedBet = Math.min(bet, maxBet);
+      const playerRoll = 1 + Math.floor(Math.random() * 6);
+      const houseRoll = 1 + Math.floor(Math.random() * 6);
+      const msgs = [
+        `\`6You toss ${cappedBet.toLocaleString()} gold on the table.`,
+        `\`7You roll: \`$${playerRoll}\`7   House rolls: \`@${houseRoll}`,
+      ];
+      if (playerRoll > houseRoll) {
+        await updatePlayer(player.id, { gold: Number(player.gold) + cappedBet });
+        msgs.push(`\`0You win! \`$${cappedBet.toLocaleString()}\`0 gold added to your purse.`);
+      } else {
+        await updatePlayer(player.id, { gold: Number(player.gold) - cappedBet });
+        msgs.push(`\`@You lose! The house takes ${cappedBet.toLocaleString()} gold. Better luck next time.`);
+      }
+      player = await getPlayer(player.id);
+      return res.json({ ...getTavernScreen(player, await getAllPlayers()), pendingMessages: msgs });
+    }
+
+    // ── TAVERN RUMOURS ────────────────────────────────────────────────────
+    case 'tavern_rumours': {
+      const rumourMonster = getRandomMonster(Number(player.level));
+      const rumourTemplates = [
+        `\`6Old Hrok leans in: "Careful out there. Folk say a \`%${rumourMonster.name}\`6 has been seen on the trail."`,
+        `\`6A cloaked traveller whispers: "I saw a \`%${rumourMonster.name}\`6 near the forest edge. Didn't stick around."`,
+        `\`6The barmaid sets down your mug: "My cousin lost a horse to a \`%${rumourMonster.name}\`6 last night."`,
+        `\`6A veteran warrior grumbles: "Damned \`%${rumourMonster.name}\`6s are thick in the woods tonight. Watch yourself."`,
+        `\`6Someone drew a rough sketch on the table: a \`%${rumourMonster.name}\`6. The ink is still fresh.`,
+      ];
+      const rumour = rumourTemplates[Math.floor(Math.random() * rumourTemplates.length)];
+      return res.json({ ...getTavernScreen(player, await getAllPlayers()), pendingMessages: [rumour] });
+    }
+
+    // ── TAVERN BUY ROUND ──────────────────────────────────────────────────
+    case 'tavern_buyround': {
+      if (Number(player.gold) < 50)
+        return res.json({ ...getTavernScreen(player, await getAllPlayers()), pendingMessages: [`\`@Not enough gold! Buying a round costs 50 gold.`] });
+      const newCharm = Math.min(50, (player.charm || 10) + 1);
+      await updatePlayer(player.id, { gold: Number(player.gold) - 50, charm: newCharm });
+      await addNews(`\`6${player.handle}\`% bought the house a round at the Dark Cloak Tavern!`);
+      player = await getPlayer(player.id);
+      return res.json({ ...getTavernScreen(player, await getAllPlayers()), pendingMessages: [
+        `\`6"Drinks on ${player.handle}!" A cheer goes up from the tavern.`,
+        `\`#Your charm has increased to ${newCharm}!`,
+      ]});
     }
 
     // ── TOWN CRIER ────────────────────────────────────────────────────────

@@ -12,6 +12,9 @@ async function runNewDay(player) {
   updates.special_done_today = 0;
   updates.skill_uses_left = Math.min(player.skill_points, 10);
   updates.rage_active = 0;
+  updates.stamina = 10;
+  updates.training_today = 0;
+  updates.drinks_today = 0;
 
   if (player.near_death) {
     // No one came — the warrior perishes

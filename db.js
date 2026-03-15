@@ -79,6 +79,9 @@ async function initDb() {
     `ALTER TABLE players ADD COLUMN IF NOT EXISTS crier_day INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE players ADD COLUMN IF NOT EXISTS is_legend INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE players ADD COLUMN IF NOT EXISTS rage_active INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE players ADD COLUMN IF NOT EXISTS stamina INTEGER NOT NULL DEFAULT 10`,
+    `ALTER TABLE players ADD COLUMN IF NOT EXISTS training_today INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE players ADD COLUMN IF NOT EXISTS drinks_today INTEGER NOT NULL DEFAULT 0`,
   ];
   for (const m of migrations) await pool.query(m);
   console.log('Database schema ready.');

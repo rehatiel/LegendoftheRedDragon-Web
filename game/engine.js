@@ -137,6 +137,18 @@ const LOCATION_BANNERS = {
     ],
     colors: ['yellow','white','white','white','white','white','brown'],
   },
+  training: {
+    lines: [
+      "  ~  ~  SERGEANT  GRIMWALD'S  TRAINING  YARD  ~  ~  ~  ~  ~  ",
+      "   [STRAW DUMMY]     [SPARRING RING]     [WEAPON RACK]        ",
+      "      (o)           +---------------+    | | | | | |          ",
+      "      +++           | Recruits spar |    | | | | | |          ",
+      "     /|\\            |  every  dawn  |    | | | | | |          ",
+      "    / | \\           +---------------+   swords   spears       ",
+      " ~~[DUMMY]~~~[POST]~~~[SPARRING=RING]~~~[WEAPON=RACK]~~~      ",
+    ],
+    colors: ['yellow','white','white','white','white','white','brown'],
+  },
   tavern: {
     lines: [
       "  ~~  *    THE  DARK  CLOAK  TAVERN    *   Ales  2gp  *  ~~  ",
@@ -251,25 +263,31 @@ function getStatusBar(player) {
   const cls = CLASS_NAMES[player.class] || 'Unknown';
   const nextExp = expForNextLevel(player.level);
   const expStr = nextExp ? `${fmt(player.exp)}/${fmt(nextExp)}` : `${fmt(player.exp)} (CHAMPION)`;
+  const stam = player.stamina ?? player.fights_left ?? 10;
+  const stamC = stam > 6 ? c.green : stam > 3 ? c.yellow : c.red;
   return [
     divider(),
     `${c.yellow}  ${pad(player.handle, 24)}${c.gray}Class: ${c.cyan}${cls}`,
     `${c.gray}  HP: ${hpC}${fmt(player.hit_points)}${c.gray}/${c.white}${fmt(player.hit_max)}   ${c.gray}Gold: ${c.yellow}${fmt(player.gold)}   ${c.gray}Gems: ${c.cyan}${player.gems}`,
     `${c.gray}  Level: ${c.yellow}${player.level}   ${c.gray}Exp: ${c.green}${expStr}`,
     `${c.gray}  Weapon: ${c.white}${player.weapon_name}   ${c.gray}Armour: ${c.white}${player.arm_name}`,
+    `${c.gray}  Stamina: ${hpBar(stam, 10, 10)} ${stamC}${stam}${c.gray}/10${stam === 0 ? c.red + '  ☆ EXHAUSTED' : ''}`,
     (player.poisoned || 0) > 0 ? `${c.dgreen}  ☠ POISONED (${player.poisoned} round${player.poisoned !== 1 ? 's' : ''} remaining)` : undefined,
     divider(),
   ].filter(l => l !== undefined);
 }
 
 function getTownScreen(player) {
+  const stam = player.stamina ?? player.fights_left ?? 10;
+  const trainLeft = 5 - (player.training_today || 0);
   const lines = [
     ...renderBanner('town'),
     ...getStatusBar(player),
     '',
     `${c.yellow}  What would you like to do?`,
     '',
-    `${c.yellow}  [F]${c.white} Enter the Forest${player.fights_left === 0 ? c.dgray + '  (no fights left today)' : c.green + '  (' + player.fights_left + ' fights remaining)'}`,
+    `${c.yellow}  [F]${c.white} Enter the Forest${stam === 0 ? c.dgray + '  (exhausted — rest at the tavern)' : c.green + '  (' + stam + ' stamina remaining)'}`,
+    `${c.yellow}  [X]${c.white} Training Grounds${trainLeft > 0 ? c.dgreen + '  (' + trainLeft + ' session' + (trainLeft !== 1 ? 's' : '') + ' left)' : c.dgray + '  (fully trained today)'}`,
     `${c.yellow}  [W]${c.white} Visit the Weapon Shop`,
     `${c.yellow}  [A]${c.white} Visit the Armour Shop`,
     `${c.yellow}  [I]${c.white} Go to the Inn`,
@@ -288,7 +306,8 @@ function getTownScreen(player) {
   ].filter(l => l !== undefined);
 
   const choices = [
-    { key: 'F', label: 'Enter the Forest', action: 'forest', disabled: player.fights_left === 0 },
+    { key: 'F', label: 'Enter the Forest', action: 'forest', disabled: stam === 0 },
+    { key: 'X', label: 'Training Grounds', action: 'training' },
     { key: 'W', label: 'Weapon Shop', action: 'weapon_shop' },
     { key: 'A', label: 'Armour Shop', action: 'armor_shop' },
     { key: 'I', label: 'Inn', action: 'inn' },
@@ -353,7 +372,7 @@ function getForestEncounterScreen(player, monster, depth = 0) {
       ? `${c.yellow}  [P]${c.white} ${move.name}! ${c.dgray}(${player.skill_uses_left} use${player.skill_uses_left !== 1 ? 's' : ''} left)`
       : `${c.dgray}  [P] ${move.name} ${c.dgray}(no uses left)`,
     '',
-    `${c.dgray}  Forest fights remaining today: ${player.fights_left}`,
+    `${c.dgray}  Stamina remaining today: ${player.stamina ?? player.fights_left ?? 10}`,
   );
   if (player.class === 1) lines.push(`${c.red}  [D]${c.white} RAGE! ${c.dgray}(spend 15% HP, next strike x2 damage)`);
 
@@ -615,6 +634,42 @@ function getMasterScreen(player) {
   ]);
 }
 
+function getTrainingScreen(player) {
+  const stam = player.stamina ?? player.fights_left ?? 10;
+  const trainLeft = 5 - (player.training_today || 0);
+  const expPerDummy = player.level * 12;
+  const expPerSpar = player.level * 20;
+  const canTrain = stam > 0 && trainLeft > 0;
+
+  const lines = [
+    ...renderBanner('training'),
+    `${c.white}  Sergeant Grimwald eyes you up and down.`,
+    `${c.gray}  "Weaklings die in the forest. Warriors are MADE here."`,
+    '',
+    divider('─', 55),
+    `${c.gray}  Stamina: ${hpBar(stam, 10, 10)} ${stam > 6 ? c.green : stam > 3 ? c.yellow : c.red}${stam}${c.gray}/10`,
+    `${c.gray}  Training sessions left today: ${c.cyan}${trainLeft}${c.gray}/5`,
+    divider('─', 55),
+    '',
+    canTrain
+      ? `${c.yellow}  [F]${c.white} Fight the Training Dummy  ${c.dgray}(−1 stamina → +${expPerDummy} exp, safe)`
+      : `${c.dgray}  [F] Fight the Training Dummy  (unavailable)`,
+    canTrain
+      ? `${c.yellow}  [S]${c.white} Spar with a Recruit       ${c.dgray}(−1 stamina → +${expPerSpar} exp, minor injury risk)`
+      : `${c.dgray}  [S] Spar with a Recruit  (unavailable)`,
+    `${c.yellow}  [L]${c.white} Leave the Training Yard`,
+    '',
+    stam === 0 ? `${c.red}  You are too exhausted to train. Visit the tavern for a drink!` : '',
+    trainLeft === 0 ? `${c.dgray}  You have trained enough for one day. Come back tomorrow.` : '',
+  ].filter(l => l !== undefined && l !== '');
+
+  return buildScreen("Grimwald's Training Yard", lines, [
+    { key: 'F', label: 'Fight Dummy', action: 'training_fight', disabled: !canTrain },
+    { key: 'S', label: 'Spar', action: 'training_spar', disabled: !canTrain },
+    { key: 'L', label: 'Leave', action: 'town' },
+  ]);
+}
+
 function getTavernScreen(player, otherPlayers) {
   const lines = [
     ...renderBanner('tavern'),
@@ -640,22 +695,70 @@ function getTavernScreen(player, otherPlayers) {
 
   lines.push('');
   lines.push(`${c.gray}  Your human fights today: ${c.yellow}${player.human_fights_left}`);
+  const stam = player.stamina ?? player.fights_left ?? 10;
+  const drinksLeft = 3 - (player.drinks_today || 0);
+  lines.push(`${c.gray}  Your stamina: ${stam > 6 ? c.green : stam > 3 ? c.yellow : c.red}${stam}${c.gray}/10`);
   lines.push('');
-  lines.push(`${c.yellow}  [A]${c.white} Attack a player ${c.dgray}(enter their number)`);
+  lines.push(`${c.yellow}  [D]${c.white} Order a Drink           ${drinksLeft > 0 ? c.dgreen + '(restores stamina, ' + drinksLeft + ' left today)' : c.dgray + '(no more drinks today)'}`);
+  lines.push(`${c.yellow}  [G]${c.white} Try Your Luck           ${c.dgray}(dice gamble)`);
+  lines.push(`${c.yellow}  [R]${c.white} Hear Rumours            ${c.dgray}(free — learn what lurks outside)`);
+  lines.push(`${c.yellow}  [B]${c.white} Buy the House a Round   ${c.dgray}(50 gold — +1 charm)`);
+  lines.push(`${c.yellow}  [A]${c.white} Challenge a Player      ${c.dgray}(enter their number)`);
   if (player.class === 1) {
-    lines.push(`${c.red}  [I]${c.white} Intimidate a player for gold${c.dgray} (Death Knight only)`);
+    lines.push(`${c.red}  [I]${c.white} Intimidate a player     ${c.dgray}(Death Knight only)`);
   }
   lines.push(`${c.yellow}  [L]${c.white} Leave the Tavern`);
 
+  const drinksRemain = 3 - (player.drinks_today || 0);
   const tavernChoices = [
+    { key: 'D', label: 'Order a Drink', action: 'tavern_drink', disabled: drinksRemain === 0 },
+    { key: 'G', label: 'Try Your Luck', action: 'tavern_gamble', needsInput: true, inputLabel: 'How much gold do you bet? (min 10)', inputType: 'number' },
+    { key: 'R', label: 'Hear Rumours', action: 'tavern_rumours' },
+    { key: 'B', label: 'Buy a Round', action: 'tavern_buyround' },
     { key: 'A', label: 'Attack Player', action: 'tavern_attack', needsInput: true, inputLabel: 'Player number to attack:', inputType: 'number', disabled: player.human_fights_left === 0 },
     { key: 'L', label: 'Leave', action: 'town' },
   ];
   if (player.class === 1) {
-    tavernChoices.splice(-1, 0, { key: 'I', label: 'Intimidate', action: 'tavern_intimidate', needsInput: true, inputLabel: 'Player number to intimidate:', inputType: 'number', disabled: player.human_fights_left === 0 });
+    tavernChoices.splice(tavernChoices.findIndex(c => c.key === 'A'), 0, { key: 'I', label: 'Intimidate', action: 'tavern_intimidate', needsInput: true, inputLabel: 'Player number to intimidate:', inputType: 'number', disabled: player.human_fights_left === 0 });
   }
 
   return buildScreen('Dark Cloak Tavern', lines, tavernChoices);
+}
+
+function getTavernDrinkScreen(player) {
+  const stam = player.stamina ?? player.fights_left ?? 10;
+  const drinksLeft = 3 - (player.drinks_today || 0);
+
+  const lines = [
+    ...renderBanner('tavern'),
+    `${c.brown}  The barkeep, a grizzled dwarf named Hrok, looks up at you.`,
+    `${c.brown}  "What'll it be, then? We've got fine spirits tonight."`,
+    '',
+    divider('─', 55),
+    `${c.gray}  Current stamina: ${stam > 6 ? c.green : stam > 3 ? c.yellow : c.red}${stam}${c.gray}/10`,
+    `${c.gray}  Drinks remaining today: ${c.cyan}${drinksLeft}${c.gray}/3`,
+    divider('─', 55),
+    '',
+    drinksLeft > 0
+      ? `${c.yellow}  [A]${c.white} Pint of Ale     ${c.dgray}(10 gold — +2 stamina)`
+      : `${c.dgray}  [A] Pint of Ale     (already had enough today)`,
+    drinksLeft > 0
+      ? `${c.yellow}  [W]${c.white} Cup of Wine     ${c.dgray}(25 gold — +3 stamina)`
+      : `${c.dgray}  [W] Cup of Wine     (already had enough today)`,
+    drinksLeft > 0
+      ? `${c.yellow}  [S]${c.white} Fine Spirits    ${c.dgray}(50 gold — +4 stamina)`
+      : `${c.dgray}  [S] Fine Spirits    (already had enough today)`,
+    `${c.yellow}  [L]${c.white} Never mind`,
+    '',
+    stam >= 10 ? `${c.dgray}  Your stamina is already full.` : '',
+  ].filter(l => l !== undefined && l !== '');
+
+  return buildScreen('The Bar', lines, [
+    { key: 'A', label: 'Pint of Ale (10g)', action: 'tavern_drink_order', param: 'ale', disabled: drinksLeft === 0 || stam >= 10 },
+    { key: 'W', label: 'Cup of Wine (25g)', action: 'tavern_drink_order', param: 'wine', disabled: drinksLeft === 0 || stam >= 10 },
+    { key: 'S', label: 'Fine Spirits (50g)', action: 'tavern_drink_order', param: 'spirits', disabled: drinksLeft === 0 || stam >= 10 },
+    { key: 'L', label: 'Never mind', action: 'tavern' },
+  ]);
 }
 
 function getGardenScreen(player) {
@@ -1084,7 +1187,8 @@ function getCrierScreen(player) {
 module.exports = {
   getTownScreen, getForestEncounterScreen, getForestCombatScreen,
   getWeaponShopScreen, getArmorShopScreen, getInnScreen, getBankScreen,
-  getMasterScreen, getTavernScreen, getGardenScreen, getBardScreen,
+  getMasterScreen, getTrainingScreen, getTavernScreen, getTavernDrinkScreen,
+  getGardenScreen, getBardScreen,
   getNewsScreen, getCharacterScreen, getSetupScreen, getDragonScreen,
   getLevelUpScreen, getForestEventScreen, getRescueOpportunityScreen,
   getNearDeathWaitingScreen, getNpcRescueScreen, getNearDeathScreen,
