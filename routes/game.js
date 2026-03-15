@@ -1,6 +1,6 @@
 const express = require('express');
 const { getPlayer, updatePlayer, getAllPlayers, getNearDeathPlayers, getRecentNews, addNews, getHallOfKings, addToHallOfKings, TODAY } = require('../db');
-const { getRandomMonster, RED_DRAGON, WEAPONS, ARMORS, CLASS_NAMES, expForNextLevel, getWeaponByNum, getArmorByNum } = require('../game/data');
+const { getRandomMonster, RED_DRAGON, WEAPONS, ARMORS, CLASS_NAMES, expForNextLevel, getWeaponByNum, getArmorByNum, LEVEL_UP_GAINS } = require('../game/data');
 const { resolveRound, resolvePvP } = require('../game/combat');
 const { checkLevelUp, runNewDay } = require('../game/newday');
 const { FOREST_EVENTS } = require('../game/forest_events');
@@ -37,7 +37,7 @@ router.post('/setup', ar(async (req, res) => {
     const cls = [1, 2, 3].includes(parseInt(req.body.classNum)) ? parseInt(req.body.classNum) : 1;
     if (name.length < 2 || name.length > 20)
       return res.status(400).json({ error: 'Name must be 2–20 characters.' });
-    const classHp  = { 1: 20, 2: 17, 3: 15 };
+    const classHp  = { 1: 30, 2: 25, 3: 22 };
     const classStr = { 1: 18, 2: 15, 3: 15 };
     await updatePlayer(player.id, {
       handle: name, sex, class: cls,
@@ -61,7 +61,7 @@ router.post('/setup', ar(async (req, res) => {
 
   if (action === 'setup_class') {
     const cls = [1, 2, 3].includes(parseInt(param)) ? parseInt(param) : 1;
-    const classHp  = { 1: 20, 2: 17, 3: 15 };
+    const classHp  = { 1: 30, 2: 25, 3: 22 };
     const classStr = { 1: 18, 2: 15, 3: 15 };
     await updatePlayer(player.id, {
       class: cls,
@@ -104,8 +104,8 @@ router.post('/action', ar(async (req, res) => {
 
   const { action, param } = req.body;
 
-  // Near-death players can only wait or be rescued
-  if (player.near_death && action !== 'near_death_wait' && action !== 'town' && action !== 'logout') {
+  // Near-death players can only wait, accept death, or be rescued
+  if (player.near_death && action !== 'near_death_wait' && action !== 'near_death_accept' && action !== 'town' && action !== 'logout') {
     return res.json({ ...getNearDeathWaitingScreen(player), pendingMessages });
   }
 
@@ -118,6 +118,35 @@ router.post('/action', ar(async (req, res) => {
 
     case 'near_death_wait':
       return res.json(getNearDeathWaitingScreen(player));
+
+    case 'near_death_accept': {
+      // Player gives up waiting — take the death penalty immediately
+      const goldLost = Math.floor(Number(player.gold) * 0.5);
+      const deathUpdates = {
+        near_death: 0,
+        near_death_by: '',
+        dead: 0,
+        poisoned: 0,
+        hit_points: Math.max(5, Math.floor(player.hit_max * 0.5)),
+        gold: Number(player.gold) - goldLost,
+      };
+      const deathMsgs = [
+        `\`@You give in to your wounds...`,
+        `\`%You have been reincarnated! You lost \`$${goldLost.toLocaleString()}\`% gold.`,
+      ];
+      if (player.level > 1) {
+        const gains = LEVEL_UP_GAINS[player.class];
+        deathUpdates.level = player.level - 1;
+        deathUpdates.hit_max = Math.max(15, player.hit_max - gains.hp);
+        deathUpdates.hit_points = Math.max(5, Math.floor(deathUpdates.hit_max * 0.5));
+        deathUpdates.strength = Math.max(15, player.strength - gains.strength);
+        deathMsgs.push(`\`@You lost a level! You are now level \`$${deathUpdates.level}\`%.`);
+      }
+      await updatePlayer(player.id, deathUpdates);
+      await addNews(`\`8${player.handle}\`8 succumbed to their wounds in the forest.`);
+      player = await getPlayer(player.id);
+      return res.json({ ...getTownScreen(player), pendingMessages: deathMsgs });
+    }
 
     // ── FOREST ────────────────────────────────────────────────────────────
     case 'forest': {
@@ -462,14 +491,18 @@ router.post('/action', ar(async (req, res) => {
         ];
         const saver = npcSavers[Math.floor(Math.random() * npcSavers.length)];
 
-        if (deathRoll < 0.20) {
+        // Scale mercy by level: lower-level players are more likely to be saved
+        const npcSaveChance = Math.max(0.10, 0.45 - (player.level - 1) * 0.03);
+        const nearDeathChance = 0.25;
+
+        if (deathRoll < npcSaveChance) {
           // Lucky — NPC saves them on the spot
           const savedHp = Math.max(1, Math.floor(player.hit_max * 0.15));
           await updatePlayer(player.id, { hit_points: savedHp });
           player = await getPlayer(player.id);
           await addNews(`\`0${player.handle}\`% was pulled from death's door by ${saver}!`);
           return res.json(getNpcRescueScreen(player, saver, monster, log, round, history));
-        } else if (deathRoll < 0.45) {
+        } else if (deathRoll < npcSaveChance + nearDeathChance) {
           // Near death — waiting for a player to find and rescue them
           await updatePlayer(player.id, { near_death: 1, near_death_by: monster.name, hit_points: 0 });
           player = await getPlayer(player.id);

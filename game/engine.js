@@ -1098,9 +1098,11 @@ function getNearDeathWaitingScreen(player) {
     `${c.dgray}  ── You cannot act while near death ──`,
     '',
     `${c.yellow}  [W]${c.white} Wait for rescue...`,
+    `${c.red}  [G]${c.white} Give up${c.gray} — accept death penalty now and return to town`,
   ];
   return buildScreen('Near Death...', lines, [
     { key: 'W', label: 'Wait for rescue...', action: 'near_death_wait' },
+    { key: 'G', label: 'Give up (accept death)', action: 'near_death_accept' },
   ]);
 }
 
@@ -1158,9 +1160,11 @@ function getNearDeathScreen(player, monster, log, round, history) {
   lines.push(`${c.dgray}  If not... this is the end.`);
   lines.push('');
   lines.push(`${c.yellow}  [W]${c.white} Wait and hope...`);
+  lines.push(`${c.red}  [G]${c.white} Give up${c.gray} — accept death penalty now and return to town`);
 
   return buildScreen('Near Death!', lines, [
     { key: 'W', label: 'Wait and hope...', action: 'near_death_wait' },
+    { key: 'G', label: 'Give up (accept death)', action: 'near_death_accept' },
   ]);
 }
 
