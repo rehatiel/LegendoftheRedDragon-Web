@@ -1,8 +1,11 @@
 require('dotenv').config({ path: '.env' });
+const http = require('http');
 const express = require('express');
 const session = require('express-session');
+const pgSession = require('connect-pg-simple')(session);
+const { WebSocketServer } = require('ws');
 const path = require('path');
-const { initDb } = require('./db');
+const { initDb, pool } = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -11,6 +14,7 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.use(session({
+  store: new pgSession({ pool, tableName: 'session', createTableIfMissing: true }),
   secret: process.env.SESSION_SECRET || 'lord-web-change-me',
   resave: false,
   saveUninitialized: false,
@@ -24,20 +28,37 @@ app.use(session({
 
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/game', require('./routes/game'));
+app.use('/api/admin', require('./routes/admin'));
 
-// Serve SPA for all non-API routes
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Global async error handler
 app.use((err, req, res, _next) => {
   console.error(err);
   res.status(500).json({ error: 'Internal server error.' });
 });
 
+const server = http.createServer(app);
+const wss = new WebSocketServer({ server });
+
+// Broadcast a message to all connected WebSocket clients
+function broadcast(type, data) {
+  const msg = JSON.stringify({ type, data });
+  wss.clients.forEach(client => {
+    if (client.readyState === 1) client.send(msg);
+  });
+}
+
+wss.on('connection', (ws) => {
+  ws.on('error', (err) => console.error('WebSocket error:', err));
+  // No client→server messages handled yet
+});
+
+module.exports = { broadcast };
+
 initDb().then(() => {
-  app.listen(PORT, () => console.log(`LORD Web running at http://localhost:${PORT}`));
+  server.listen(PORT, () => console.log(`LORD Web running at http://localhost:${PORT}`));
 }).catch(err => {
   console.error('Failed to initialize database:', err);
   process.exit(1);

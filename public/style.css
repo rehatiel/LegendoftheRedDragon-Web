@@ -166,10 +166,12 @@ html, body {
   color: #55FF55;
   font-family: inherit;
   font-size: 13px;
-  padding: 6px 14px;
+  padding: 8px 16px;
+  min-height: 44px;
   cursor: pointer;
   transition: background 0.1s, border-color 0.1s;
   white-space: nowrap;
+  touch-action: manipulation;
 }
 
 .choice-btn:hover:not(:disabled) {
@@ -419,13 +421,44 @@ html, body {
 }
 .btn-back:hover { color: #AAAAAA; border-color: #555; }
 
+/* ── Loading state ───────────────────────────────────────── */
+#choices-bar.loading .choice-btn {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+#choices-bar.loading::after {
+  content: '...';
+  color: #555;
+  font-size: 13px;
+  align-self: center;
+  animation: blink 1s step-start infinite;
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+/* ── Pending message animation ───────────────────────────── */
+#pending-messages .pmsg {
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateX(-4px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
 /* ── Responsive ──────────────────────────────────────────── */
 @media (max-width: 640px) {
-  html, body { font-size: 13px; }
+  html, body { font-size: 14px; }
   .auth-box, .setup-box { width: 100%; padding: 20px; }
+  #game-screen { padding: 8px; }
   #terminal { padding: 10px; }
   .class-cards { grid-template-columns: 1fr; }
   .sex-options { grid-template-columns: 1fr 1fr; }
+  .choice-btn { font-size: 14px; padding: 10px 16px; }
+  #game-input { font-size: 16px; } /* prevents iOS zoom on focus */
 }
 
 /* ── Scrollbar ───────────────────────────────────────────── */

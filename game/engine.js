@@ -1,5 +1,5 @@
 // Screen generation engine for LORD web port
-const { WEAPONS, ARMORS, expForNextLevel, CLASS_NAMES, CLASS_POWER_MOVES, MONSTER_TEMPLATES, getWeaponByNum, getArmorByNum } = require('./data');
+const { WEAPONS, ARMORS, expForNextLevel, CLASS_NAMES, CLASS_POWER_MOVES, MONSTER_TEMPLATES, getWeaponByNum, getArmorByNum, TOWNS } = require('./data');
 const { MONSTER_ART } = require('./forest_events');
 
 const c = {
@@ -280,9 +280,13 @@ function getStatusBar(player) {
 function getTownScreen(player) {
   const stam = player.stamina ?? player.fights_left ?? 10;
   const trainLeft = 5 - (player.training_today || 0);
+  const town = TOWNS[player.current_town || 'harood'] || TOWNS.harood;
+
   const lines = [
     ...renderBanner('town'),
     ...getStatusBar(player),
+    '',
+    `${c.gray}  ${c.dgray}⚑ ${c.yellow}${town.name}  ${c.dgray}— ${c.gray}${town.tagline}`,
     '',
     `${c.yellow}  What would you like to do?`,
     '',
@@ -301,6 +305,7 @@ function getTownScreen(player) {
     `${c.yellow}  [C]${c.white} View Your Character`,
     player.level >= 12 ? `${c.red}  [D]${c.white} Challenge the Red Dragon` : '',
     `${c.yellow}  [Y]${c.white} Town Crier${c.dgray} (post an announcement)`,
+    `${c.cyan}  [V]${c.white} World Map / Travel${c.dgray} (${town.connections.length} route${town.connections.length !== 1 ? 's' : ''} from here)`,
     `${c.dgray}  [L]${c.gray} Logout`,
     '',
   ].filter(l => l !== undefined);
@@ -320,11 +325,12 @@ function getTownScreen(player) {
     { key: 'P', label: 'Other Players', action: 'players' },
     { key: 'C', label: 'Character', action: 'character' },
     { key: 'Y', label: 'Town Crier', action: 'crier' },
+    { key: 'V', label: 'World Map / Travel', action: 'world_map' },
     { key: 'L', label: 'Logout', action: 'logout' },
   ];
   if (player.level >= 12) choices.splice(choices.findIndex(ch => ch.key === 'Y'), 0, { key: 'D', label: 'Challenge Dragon', action: 'dragon' });
 
-  return buildScreen('Town of Harood', lines, choices);
+  return buildScreen(town.name, lines, choices);
 }
 
 function getForestEncounterScreen(player, monster, depth = 0) {
@@ -1188,10 +1194,130 @@ function getCrierScreen(player) {
   ], { needsInput: true, inputLabel: 'Your announcement:', inputAction: 'post_crier' });
 }
 
+// Map display names → town IDs (abbreviated names used in ASCII art)
+const MAP_NAME_TO_ID = {
+  'Frostmere': 'frostmere', 'Stormwatch': 'stormwatch',
+  'Thornreach': 'thornreach', 'Ironhold': 'ironhold', 'Old Karth': 'old_karth',
+  'Harood': 'harood', 'Silverkeep': 'silverkeep', 'Velmora': 'velmora',
+  'Bracken': 'bracken_hollow', 'Duskveil': 'duskveil',
+  'Graveport': 'graveport', 'Mirefen': 'mirefen', 'Ashenfall': 'ashenfall',
+};
+
+const MAP_LINES = [
+  '                [Frostmere]',
+  '                     |',
+  '                [Stormwatch]',
+  '               /             \\',
+  '         [Thornreach]      [Ironhold] ─ [Old Karth]',
+  '          /       \\              |             |',
+  '      [Harood] [Silverkeep] ─ [Velmora]        |',
+  '         |           |              |           |',
+  '     [Bracken]   [Duskveil] ─ [Graveport]      |',
+  '                      \\          /             |',
+  '                      [Mirefen]                |',
+  '                           \\                   |',
+  '                         [Ashenfall] ────────────',
+];
+
+function renderWorldMap(currentTownId, connections) {
+  return MAP_LINES.map(line => {
+    let result = `${c.dgray}  `;
+    let lastEnd = 0;
+    const re = /\[([^\]]+)\]/g;
+    let m;
+    while ((m = re.exec(line)) !== null) {
+      result += c.dgray + line.slice(lastEnd, m.index);
+      const id = MAP_NAME_TO_ID[m[1]];
+      if (id === currentTownId)        result += `${c.yellow}${m[0]}`;
+      else if (id && connections.includes(id)) result += `${c.green}${m[0]}`;
+      else                             result += `${c.dgray}${m[0]}`;
+      lastEnd = m.index + m[0].length;
+    }
+    result += c.dgray + line.slice(lastEnd);
+    return result;
+  });
+}
+
+function getWorldMapScreen(player) {
+  const town = TOWNS[player.current_town || 'harood'] || TOWNS.harood;
+  const connections = town.connections;
+
+  const lines = [
+    ...renderBanner('title'),
+    '',
+    `${c.yellow}  ─── WORLD MAP ───`,
+    `${c.dgray}  ${c.yellow}[You]${c.dgray} = current location   ${c.green}[Green]${c.dgray} = reachable   ${c.dgray}[Gray]${c.dgray} = other`,
+    '',
+    ...renderWorldMap(town.id, connections),
+    '',
+    divider('─', 55),
+    `${c.yellow}  You are in: ${c.yellow}${town.name}`,
+    `${c.dgray}  ${town.tagline}`,
+    '',
+    `${c.white}  Direct routes from here:`,
+    ...connections.map(id => {
+      const dest = TOWNS[id];
+      return dest ? `${c.green}    → ${c.white}${dest.name}  ${c.dgray}${dest.tagline}` : null;
+    }).filter(Boolean),
+    '',
+    `${c.dgray}  Travel costs 50 gold per journey.`,
+    divider('─', 55),
+  ];
+
+  const choices = connections.map(id => {
+    const dest = TOWNS[id];
+    return dest ? { key: dest.name[0].toUpperCase(), label: `Travel to ${dest.name}`, action: 'travel', param: id } : null;
+  }).filter(Boolean);
+
+  // Deduplicate keys (e.g. two towns starting with same letter)
+  const seen = new Set();
+  const deduped = choices.map(ch => {
+    if (!seen.has(ch.key)) { seen.add(ch.key); return ch; }
+    // Fall back to next available letter
+    for (let i = 0; i < ch.label.length; i++) {
+      const k = ch.label[i].toUpperCase();
+      if (/[A-Z]/.test(k) && !seen.has(k)) { seen.add(k); return { ...ch, key: k }; }
+    }
+    return ch;
+  });
+
+  deduped.push({ key: 'L', label: 'Leave (back to town)', action: 'town' });
+
+  return buildScreen('World Map', lines, deduped);
+}
+
+function getTavernEncounterScreen(player, encounter) {
+  const colorMap = {
+    magenta: c.magenta, brown: c.brown,  gray:  c.gray,
+    yellow:  c.yellow,  white: c.white,  dgray: c.dgray,
+    cyan:    c.cyan,    red:   c.red,
+  };
+  const artColor = colorMap[encounter.art.color] || c.gray;
+
+  const lines = [
+    ...renderBanner('tavern'),
+    '',
+    `${c.yellow}  ─── ${encounter.title} ───`,
+    '',
+    ...encounter.art.lines.map(l => `  ${artColor}${l}`),
+    '',
+    ...encounter.intro.map(l => `${c.white}  ${l}`),
+    '',
+  ];
+
+  const choices = encounter.choices.map(ch => ({
+    key: ch.key, label: ch.label,
+    action: 'tavern_encounter', param: ch.param,
+  }));
+
+  return buildScreen(`Dark Cloak Tavern — ${encounter.title}`, lines, choices);
+}
+
 module.exports = {
   getTownScreen, getForestEncounterScreen, getForestCombatScreen,
   getWeaponShopScreen, getArmorShopScreen, getInnScreen, getBankScreen,
   getMasterScreen, getTrainingScreen, getTavernScreen, getTavernDrinkScreen,
+  getTavernEncounterScreen, getWorldMapScreen,
   getGardenScreen, getBardScreen,
   getNewsScreen, getCharacterScreen, getSetupScreen, getDragonScreen,
   getLevelUpScreen, getForestEventScreen, getRescueOpportunityScreen,

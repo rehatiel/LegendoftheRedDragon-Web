@@ -53,6 +53,7 @@ function renderScreen(data) {
   if (data.screen === 'login') { showAuth(); return; }
 
   currentScreen = data;
+  if (data.title) document.title = `${data.title} — LORD`;
   hideInput();
 
   termOutput.innerHTML = (data.lines || []).map(l =>
@@ -105,6 +106,7 @@ function hideInput() {
 
 // ── API ───────────────────────────────────────────────────────────────────────
 async function sendAction(action, param = '') {
+  choicesBar.classList.add('loading');
   try {
     const body = { action };
     if (param !== '') body.param = param;
@@ -115,6 +117,7 @@ async function sendAction(action, param = '') {
     if (res.status === 401) { showAuth(); return; }
     renderScreen(await res.json());
   } catch { showMessage('Connection error. Please try again.'); }
+  finally { choicesBar.classList.remove('loading'); }
 }
 
 async function sendMasterTrain(stat, points) {

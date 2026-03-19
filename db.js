@@ -1,89 +1,46 @@
 const { Pool } = require('pg');
+const fs = require('fs');
+const path = require('path');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL || 'postgresql://lord:lordpass@localhost:5432/lorddb',
 });
 
-const SCHEMA = `
-  CREATE TABLE IF NOT EXISTS players (
-    id SERIAL PRIMARY KEY,
-    username TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
-    handle TEXT NOT NULL DEFAULT '',
-    sex INTEGER NOT NULL DEFAULT 0,
-    class INTEGER NOT NULL DEFAULT 1,
-    hit_points INTEGER NOT NULL DEFAULT 15,
-    hit_max INTEGER NOT NULL DEFAULT 15,
-    strength INTEGER NOT NULL DEFAULT 15,
-    defense INTEGER NOT NULL DEFAULT 0,
-    charm INTEGER NOT NULL DEFAULT 10,
-    level INTEGER NOT NULL DEFAULT 1,
-    exp BIGINT NOT NULL DEFAULT 0,
-    gold BIGINT NOT NULL DEFAULT 0,
-    bank BIGINT NOT NULL DEFAULT 0,
-    gems INTEGER NOT NULL DEFAULT 0,
-    weapon_num INTEGER NOT NULL DEFAULT 0,
-    weapon_name TEXT NOT NULL DEFAULT 'Fists',
-    arm_num INTEGER NOT NULL DEFAULT 0,
-    arm_name TEXT NOT NULL DEFAULT 'None',
-    fights_left INTEGER NOT NULL DEFAULT 10,
-    human_fights_left INTEGER NOT NULL DEFAULT 5,
-    skill_points INTEGER NOT NULL DEFAULT 0,
-    skill_uses_left INTEGER NOT NULL DEFAULT 0,
-    dead INTEGER NOT NULL DEFAULT 0,
-    seen_master INTEGER NOT NULL DEFAULT 0,
-    seen_dragon INTEGER NOT NULL DEFAULT 0,
-    has_horse INTEGER NOT NULL DEFAULT 0,
-    married_to INTEGER NOT NULL DEFAULT -1,
-    kids INTEGER NOT NULL DEFAULT 0,
-    times_won INTEGER NOT NULL DEFAULT 0,
-    kills INTEGER NOT NULL DEFAULT 0,
-    lays INTEGER NOT NULL DEFAULT 0,
-    last_day INTEGER NOT NULL DEFAULT 0,
-    flirted_today INTEGER NOT NULL DEFAULT 0,
-    special_done_today INTEGER NOT NULL DEFAULT 0,
-    setup_complete INTEGER NOT NULL DEFAULT 0,
-    last_seen TIMESTAMP,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW()
-  );
-
-  CREATE TABLE IF NOT EXISTS news (
-    id SERIAL PRIMARY KEY,
-    day INTEGER NOT NULL,
-    message TEXT NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW()
-  );
-
-  CREATE TABLE IF NOT EXISTS hall_of_kings (
-    id SERIAL PRIMARY KEY,
-    handle TEXT NOT NULL,
-    level INTEGER NOT NULL DEFAULT 12,
-    kills INTEGER NOT NULL DEFAULT 0,
-    class INTEGER NOT NULL DEFAULT 1,
-    times_won INTEGER NOT NULL DEFAULT 1,
-    defeated_at TIMESTAMP NOT NULL DEFAULT NOW()
-  );
-`;
-
 async function initDb() {
-  await pool.query(SCHEMA);
-  // Column migrations — safe to run on every start
-  const migrations = [
-    `ALTER TABLE players ADD COLUMN IF NOT EXISTS near_death INTEGER NOT NULL DEFAULT 0`,
-    `ALTER TABLE players ADD COLUMN IF NOT EXISTS near_death_by TEXT NOT NULL DEFAULT ''`,
-    `ALTER TABLE players ADD COLUMN IF NOT EXISTS poisoned INTEGER NOT NULL DEFAULT 0`,
-    `ALTER TABLE players ADD COLUMN IF NOT EXISTS quest_id TEXT NOT NULL DEFAULT ''`,
-    `ALTER TABLE players ADD COLUMN IF NOT EXISTS quest_step INTEGER NOT NULL DEFAULT 0`,
-    `ALTER TABLE players ADD COLUMN IF NOT EXISTS quest_data TEXT NOT NULL DEFAULT ''`,
-    `ALTER TABLE players ADD COLUMN IF NOT EXISTS crier_message TEXT NOT NULL DEFAULT ''`,
-    `ALTER TABLE players ADD COLUMN IF NOT EXISTS crier_day INTEGER NOT NULL DEFAULT 0`,
-    `ALTER TABLE players ADD COLUMN IF NOT EXISTS is_legend INTEGER NOT NULL DEFAULT 0`,
-    `ALTER TABLE players ADD COLUMN IF NOT EXISTS rage_active INTEGER NOT NULL DEFAULT 0`,
-    `ALTER TABLE players ADD COLUMN IF NOT EXISTS stamina INTEGER NOT NULL DEFAULT 10`,
-    `ALTER TABLE players ADD COLUMN IF NOT EXISTS training_today INTEGER NOT NULL DEFAULT 0`,
-    `ALTER TABLE players ADD COLUMN IF NOT EXISTS drinks_today INTEGER NOT NULL DEFAULT 0`,
-  ];
-  for (const m of migrations) await pool.query(m);
+  // Ensure the migrations tracking table exists
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      id SERIAL PRIMARY KEY,
+      name TEXT UNIQUE NOT NULL,
+      applied_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  // Load applied migrations
+  const { rows: applied } = await pool.query('SELECT name FROM schema_migrations');
+  const appliedSet = new Set(applied.map(r => r.name));
+
+  // Read and sort migration files
+  const migrationsDir = path.join(__dirname, 'migrations');
+  const files = fs.readdirSync(migrationsDir)
+    .filter(f => f.endsWith('.sql'))
+    .sort();
+
+  for (const file of files) {
+    if (appliedSet.has(file)) continue;
+    const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
+    await pool.query('BEGIN');
+    try {
+      await pool.query(sql);
+      await pool.query('INSERT INTO schema_migrations (name) VALUES ($1)', [file]);
+      await pool.query('COMMIT');
+      console.log('Applied migration:', file);
+    } catch (err) {
+      await pool.query('ROLLBACK');
+      throw err;
+    }
+  }
+
   console.log('Database schema ready.');
 }
 

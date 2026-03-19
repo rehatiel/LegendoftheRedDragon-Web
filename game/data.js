@@ -498,6 +498,76 @@ const LEVEL_UP_GAINS = {
   3: { hp: 15, strength: 4 },
 };
 
+// ── World map ─────────────────────────────────────────────────────────────────
+// connections lists direct one-hop travel routes (bidirectional)
+const TOWNS = {
+  harood: {
+    id: 'harood', name: 'Town of Harood',
+    tagline: 'The frontier holds no promises — only opportunities.',
+    connections: ['thornreach', 'silverkeep', 'bracken_hollow'],
+  },
+  stormwatch: {
+    id: 'stormwatch', name: 'Stormwatch',
+    tagline: 'Reality bends here. The wise tread carefully.',
+    connections: ['frostmere', 'thornreach', 'ironhold'],
+  },
+  ironhold: {
+    id: 'ironhold', name: 'Ironhold Bastion',
+    tagline: 'Strength is the only currency that matters.',
+    connections: ['stormwatch', 'silverkeep', 'velmora', 'old_karth'],
+  },
+  old_karth: {
+    id: 'old_karth', name: 'Old Karth',
+    tagline: 'What was buried here should have stayed buried.',
+    connections: ['ironhold', 'ashenfall'],
+  },
+  thornreach: {
+    id: 'thornreach', name: 'Thornreach',
+    tagline: 'The forest does not forgive those who ignore it.',
+    connections: ['stormwatch', 'harood', 'silverkeep'],
+  },
+  silverkeep: {
+    id: 'silverkeep', name: 'Silverkeep',
+    tagline: 'Justice is absolute. So is its price.',
+    connections: ['thornreach', 'harood', 'ironhold', 'velmora', 'duskveil'],
+  },
+  velmora: {
+    id: 'velmora', name: 'Velmora',
+    tagline: 'Everything has a price. Most things have several.',
+    connections: ['ironhold', 'silverkeep', 'graveport'],
+  },
+  bracken_hollow: {
+    id: 'bracken_hollow', name: 'Bracken Hollow',
+    tagline: 'Small town, big problems.',
+    connections: ['harood'],
+  },
+  duskveil: {
+    id: 'duskveil', name: 'Duskveil',
+    tagline: 'In the perpetual twilight, secrets thrive.',
+    connections: ['silverkeep', 'graveport', 'mirefen'],
+  },
+  graveport: {
+    id: 'graveport', name: 'Graveport',
+    tagline: 'The dead make good sailors. They never complain.',
+    connections: ['velmora', 'duskveil', 'mirefen'],
+  },
+  mirefen: {
+    id: 'mirefen', name: 'Mirefen',
+    tagline: 'The swamp takes what it wants. And it keeps it.',
+    connections: ['duskveil', 'graveport', 'ashenfall'],
+  },
+  ashenfall: {
+    id: 'ashenfall', name: 'Ashenfall',
+    tagline: 'Everything here has already burned once.',
+    connections: ['mirefen', 'old_karth'],
+  },
+  frostmere: {
+    id: 'frostmere', name: 'Frostmere',
+    tagline: 'Isolation is the oldest survival strategy.',
+    connections: ['stormwatch'],
+  },
+};
+
 function getWeaponByNum(num) {
   return WEAPONS.find(w => w && w.num === num) || null;
 }
@@ -506,7 +576,7 @@ function getArmorByNum(num) {
 }
 
 module.exports = {
-  WEAPONS, ARMORS, RED_DRAGON, MONSTER_TEMPLATES,
+  WEAPONS, ARMORS, RED_DRAGON, MONSTER_TEMPLATES, TOWNS,
   getMonster, getRandomMonster,
   getWeaponByNum, getArmorByNum,
   expForLevel, expForNextLevel, EXP_TABLE,
