@@ -2,24 +2,32 @@
 
 // ── Color parser ──────────────────────────────────────────────────────────────
 const COLOR_MAP = {
+  // Foreground
   '1':'c1','2':'c2','3':'c3','4':'c4','5':'c5','6':'c6',
   '7':'c7','8':'c8','9':'c9','0':'c0','!':'ce','@':'ca',
   '#':'ch','$':'cd','%':'cp',
+  // Background (a–h = black through light-gray, CGA palette)
+  'a':'b0','b':'b1','c':'b2','d':'b3','e':'b4','f':'b5','g':'b6','h':'b7',
 };
 
 function parseLine(text) {
   if (!text) return '<span class="c7"> </span>';
   const segs = [];
-  let cls = 'c7', buf = '', i = 0;
+  let fg = 'c7', bg = '', buf = '', i = 0;
   while (i < text.length) {
-    if (text[i] === '`' && COLOR_MAP[text[i+1]]) {
-      if (buf) segs.push({ cls, buf });
-      cls = COLOR_MAP[text[i+1]]; buf = ''; i += 2;
+    if (text[i] === '`' && COLOR_MAP[text[i+1]] !== undefined) {
+      if (buf) segs.push({ fg, bg, buf });
+      const mapped = COLOR_MAP[text[i+1]];
+      if (mapped[0] === 'b') bg = mapped; else fg = mapped;
+      buf = ''; i += 2;
     } else { buf += text[i++]; }
   }
-  if (buf) segs.push({ cls, buf });
+  if (buf) segs.push({ fg, bg, buf });
   if (!segs.length) return '<span class="c7"> </span>';
-  return segs.map(s => `<span class="${s.cls}">${escHtml(s.buf)}</span>`).join('');
+  return segs.map(s => {
+    const cls = s.bg ? `${s.fg} ${s.bg}` : s.fg;
+    return `<span class="${cls}">${escHtml(s.buf)}</span>`;
+  }).join('');
 }
 
 function escHtml(s) {

@@ -12,6 +12,8 @@
   --default: #AAAAAA;
 }
 
+/* ── Foreground color spans ──────────────────────────────── */
+
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 html, body {
@@ -256,6 +258,16 @@ html, body {
 .c7 { color: var(--c7); } .c8 { color: var(--c8); } .c9 { color: var(--c9); }
 .c0 { color: var(--c0); } .ce { color: var(--c!); } .ca { color: var(--c@); }
 .ch { color: var(--c#); } .cd { color: var(--c$); } .cp { color: var(--c%); }
+
+/* ── Background color classes (ANSI art, CGA palette) ─────── */
+.b0 { background-color: #000000; }
+.b1 { background-color: #0000AA; }
+.b2 { background-color: #00AA00; }
+.b3 { background-color: #00AAAA; }
+.b4 { background-color: #AA0000; }
+.b5 { background-color: #AA00AA; }
+.b6 { background-color: #AA5500; }
+.b7 { background-color: #AAAAAA; }
 
 /* ── Setup Wizard ────────────────────────────────────────── */
 .setup-box {
