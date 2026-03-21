@@ -1,11 +1,13 @@
-const { getPlayer, updatePlayer, addNews, getHallOfKings, getRecentNews } = require('../../db');
+const { getPlayer, updatePlayer, addNews, getHallOfKings, getRecentNews, getRetiredPlayersInTown } = require('../../db');
 const { WEAPONS, ARMORS, TOWNS, SHOP_OWNERS, getWeaponByNum, getArmorByNum } = require('../data');
 const { checkLevelUp } = require('../newday');
 const {
-  getTownScreen, getWeaponShopScreen, getArmorShopScreen, getInnScreen,
+  getTownScreen, getWeaponShopScreen, getArmorShopScreen, getInnScreen, getInnHealerScreen,
   getBankScreen, getMasterScreen, getTrainingScreen, getGardenScreen,
   getBardScreen, getNewsScreen, getCharacterScreen, getCrierScreen, getLevelUpScreen,
 } = require('../engine');
+const { parseWounds, healerWoundCost, healerInfectionCost } = require('../wounds');
+const { startAbduction } = require('./abduction');
 
 // ── INN ───────────────────────────────────────────────────────────────────────
 
@@ -19,36 +21,139 @@ async function inn({ player, req, res, pendingMessages }) {
     player = await getPlayer(player.id);
     pendingMessages = [...pendingMessages, `\`0The knight from the forest finds you here! "I kept my promise." He presses ${(200 * player.level).toLocaleString()} gold into your hands. +2 charm, +${(500 * player.level).toLocaleString()} exp!`];
   }
-  return res.json({ ...getInnScreen(player), pendingMessages });
+  const sleeperCount = await getRetiredPlayersInTown(player.current_town || 'dawnmark');
+  return res.json({ ...getInnScreen(player, sleeperCount), pendingMessages });
 }
 
 async function inn_rest({ player, req, res, pendingMessages }) {
+  const sleeperCount = await getRetiredPlayersInTown(player.current_town || 'dawnmark');
   const cost = Math.max(50, Math.floor(player.level * 50 * (player.class === 2 ? 0.9 : 1.0)));
   if (Number(player.gold) < cost)
-    return res.json({ ...getInnScreen(player), pendingMessages: [`\`@Not enough gold! Costs ${cost} gold.`] });
+    return res.json({ ...getInnScreen(player, sleeperCount), pendingMessages: [`\`@Not enough gold! Costs ${cost} gold.`] });
   if (player.hit_points >= player.hit_max)
-    return res.json({ ...getInnScreen(player), pendingMessages: ['`7You are already at full health!'] });
+    return res.json({ ...getInnScreen(player, sleeperCount), pendingMessages: ['`7You are already at full health!'] });
   await updatePlayer(player.id, { gold: Number(player.gold) - cost, hit_points: player.hit_max });
   player = await getPlayer(player.id);
-  return res.json({ ...getInnScreen(player), pendingMessages: ['`0You sleep peacefully and wake fully restored!'] });
+  return res.json({ ...getInnScreen(player, sleeperCount), pendingMessages: ['`0You sleep peacefully and wake fully restored!'] });
 }
 
 async function inn_gem({ player, req, res, pendingMessages }) {
+  const sleeperCount = await getRetiredPlayersInTown(player.current_town || 'dawnmark');
   if (player.gems <= 0)
-    return res.json({ ...getInnScreen(player), pendingMessages: ['`@You have no gems!'] });
+    return res.json({ ...getInnScreen(player, sleeperCount), pendingMessages: ['`@You have no gems!'] });
   await updatePlayer(player.id, { gems: player.gems - 1, hit_points: player.hit_max });
   player = await getPlayer(player.id);
-  return res.json({ ...getInnScreen(player), pendingMessages: ['`0The gem glows and you are fully healed!'] });
+  return res.json({ ...getInnScreen(player, sleeperCount), pendingMessages: ['`0The gem glows and you are fully healed!'] });
 }
 
 async function inn_antidote({ player, req, res, pendingMessages }) {
+  const sleeperCount = await getRetiredPlayersInTown(player.current_town || 'dawnmark');
   if (!player.antidote_owned)
-    return res.json({ ...getInnScreen(player), pendingMessages: ['`@You don\'t have an antidote.'] });
+    return res.json({ ...getInnScreen(player, sleeperCount), pendingMessages: ['`@You don\'t have an antidote.'] });
   if (!player.poisoned)
-    return res.json({ ...getInnScreen(player), pendingMessages: ['`7You are not poisoned.'] });
+    return res.json({ ...getInnScreen(player, sleeperCount), pendingMessages: ['`7You are not poisoned.'] });
   await updatePlayer(player.id, { poisoned: 0, antidote_owned: 0 });
   player = await getPlayer(player.id);
-  return res.json({ ...getInnScreen(player), pendingMessages: ['`0You drink the antidote. The sickness fades.', '`2You feel yourself again.'] });
+  return res.json({ ...getInnScreen(player, sleeperCount), pendingMessages: ['`0You drink the antidote. The sickness fades.', '`2You feel yourself again.'] });
+}
+
+async function inn_retire({ player, req, res, pendingMessages }) {
+  const sleeperCount = await getRetiredPlayersInTown(player.current_town || 'dawnmark');
+  const retireCost = Math.max(1, sleeperCount + 1);
+  if (Number(player.gold) < retireCost)
+    return res.json({ ...getInnScreen(player, sleeperCount), pendingMessages: [`\`@Not enough gold! Retiring tonight costs ${retireCost} gold.`] });
+  await updatePlayer(player.id, {
+    gold: Number(player.gold) - retireCost,
+    retired_today: 1,
+    retired_town: player.current_town || 'dawnmark',
+  });
+  player = await getPlayer(player.id);
+
+  // 5% abduction event
+  if (Math.random() < 0.05) {
+    const { state, screen } = startAbduction(player);
+    req.session.abduction = state;
+    return res.json({ ...screen, pendingMessages });
+  }
+
+  req.session.destroy();
+  return res.json({ screen: 'login', title: '', lines: [], choices: [], pendingMessages: ['`7You find a quiet corner and drift off to sleep. The inn grows dark around you.'] });
+}
+
+async function inn_wake({ player, req, res, pendingMessages }) {
+  await updatePlayer(player.id, { retired_today: 0, retired_town: '' });
+  player = await getPlayer(player.id);
+  const sleeperCount = await getRetiredPlayersInTown(player.current_town || 'dawnmark');
+  return res.json({ ...getInnScreen(player, sleeperCount), pendingMessages: [
+    '`7You awake violently from a deep sleep, shouting something unintelligible.',
+    '`8Several other guests glare at you. The innkeeper asks you to keep the noise down.',
+  ]});
+}
+
+async function inn_healer({ player, req, res, pendingMessages }) {
+  const wounds = parseWounds(player);
+  const woundCost = healerWoundCost(wounds, player.level);
+  const infectionCost = player.infection_type
+    ? healerInfectionCost(player.infection_type, player.infection_stage, player.level)
+    : 0;
+  return res.json({ ...getInnHealerScreen(player, wounds, woundCost, infectionCost), pendingMessages });
+}
+
+async function inn_healer_wounds({ player, req, res, pendingMessages }) {
+  const wounds = parseWounds(player);
+  const cost = healerWoundCost(wounds, player.level);
+  if (!wounds.length)
+    return res.json({ ...getInnHealerScreen(player, wounds, 0, 0), pendingMessages: ['`7You have no wounds to treat.'] });
+  if (Number(player.gold) < cost) {
+    const infCost = player.infection_type ? healerInfectionCost(player.infection_type, player.infection_stage, player.level) : 0;
+    return res.json({ ...getInnHealerScreen(player, wounds, cost, infCost), pendingMessages: [`\`@Not enough gold! Treating wounds costs ${cost.toLocaleString()} gold.`] });
+  }
+  await updatePlayer(player.id, { gold: Number(player.gold) - cost, wounds: '[]' });
+  player = await getPlayer(player.id);
+  const sleeperCount = await getRetiredPlayersInTown(player.current_town || 'dawnmark');
+  return res.json({ ...getInnScreen(player, sleeperCount), pendingMessages: ['`0The healer tends to your wounds carefully. You feel much better!'] });
+}
+
+async function inn_healer_infection({ player, req, res, pendingMessages }) {
+  if (!player.infection_type || player.infection_type === 'vampire' || player.vampire_feasted) {
+    const sleeperCount = await getRetiredPlayersInTown(player.current_town || 'dawnmark');
+    return res.json({ ...getInnScreen(player, sleeperCount), pendingMessages: ['`7There is nothing to treat.'] });
+  }
+  const cost = healerInfectionCost(player.infection_type, player.infection_stage, player.level);
+  if (Number(player.gold) < cost) {
+    const wounds = parseWounds(player);
+    const wCost = healerWoundCost(wounds, player.level);
+    return res.json({ ...getInnHealerScreen(player, wounds, wCost, cost), pendingMessages: [`\`@Not enough gold! Treating the infection costs ${cost.toLocaleString()} gold.`] });
+  }
+  await updatePlayer(player.id, {
+    gold: Number(player.gold) - cost,
+    infection_type: '',
+    infection_stage: 0,
+    infection_days: 0,
+    vampire_bites: 0,
+  });
+  player = await getPlayer(player.id);
+  const sleeperCount = await getRetiredPlayersInTown(player.current_town || 'dawnmark');
+  return res.json({ ...getInnScreen(player, sleeperCount), pendingMessages: ['`0The healer applies poultices and recites an ancient ward. The infection clears!'] });
+}
+
+async function inn_use_bandage({ player, req, res, pendingMessages }) {
+  const sleeperCount = await getRetiredPlayersInTown(player.current_town || 'dawnmark');
+  const wounds = parseWounds(player);
+  const slashWounds = wounds.filter(w => w.type === 'slash');
+  if (!slashWounds.length || player.bandages <= 0)
+    return res.json({ ...getInnScreen(player, sleeperCount), pendingMessages: ['`7No slash wounds to bandage, or no bandages remaining.'] });
+
+  // Treat the most severe slash wound
+  const worstIdx = wounds.reduce((best, w, i) =>
+    w.type === 'slash' && w.severity > (wounds[best]?.severity ?? 0) ? i : best,
+    wounds.findIndex(w => w.type === 'slash'));
+  wounds[worstIdx].severity -= 1;
+  if (wounds[worstIdx].severity <= 0) wounds.splice(worstIdx, 1);
+
+  await updatePlayer(player.id, { wounds: JSON.stringify(wounds), bandages: player.bandages - 1 });
+  player = await getPlayer(player.id);
+  return res.json({ ...getInnScreen(player, sleeperCount), pendingMessages: ['`0You carefully bind the wound. It will heal faster now.'] });
 }
 
 // ── BANK ──────────────────────────────────────────────────────────────────────
@@ -101,7 +206,7 @@ async function master_train({ player, param, req, res, pendingMessages }) {
     return res.json({ ...getMasterScreen(player), pendingMessages: [`\`@Not enough gold! Costs \`$${cost.toLocaleString()}\`@ gold.`] });
   await updatePlayer(player.id, { gold: Number(player.gold) - cost, [stat]: Number(player[stat]) + points });
   player = await getPlayer(player.id);
-  return res.json({ ...getMasterScreen(player), pendingMessages: [`\`0Seth nods approvingly. Your ${stat} increased by ${points}!`] });
+  return res.json({ ...getMasterScreen(player), pendingMessages: [`\`0Aldric nods approvingly. Your ${stat} increased by ${points}!`] });
 }
 
 // ── TRAINING ──────────────────────────────────────────────────────────────────
@@ -374,6 +479,8 @@ async function post_crier({ player, param, req, res, pendingMessages }) {
 
 module.exports = {
   inn, inn_rest, inn_gem, inn_antidote,
+  inn_retire, inn_wake,
+  inn_healer, inn_healer_wounds, inn_healer_infection, inn_use_bandage,
   bank, bank_deposit, bank_withdraw,
   master, master_train,
   training,

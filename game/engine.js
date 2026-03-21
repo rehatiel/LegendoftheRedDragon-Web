@@ -1004,36 +1004,169 @@ function getArmorShopScreen(player) {
   return buildScreen('Armour Shop', lines, choices, { needsInput: true, inputLabel: 'Armour # (0 to leave):', inputAction: 'buy_armor' });
 }
 
-function getInnScreen(player) {
+function getInnScreen(player, sleeperCount = 0) {
+  const { parseWounds, woundLabel, infectionLabel, hasSerious } = require('./wounds');
   const restCost = Math.max(50, Math.floor(player.level * 50 * (player.class === 2 ? 0.9 : 1.0)));
+  const retireCost = Math.max(1, sleeperCount + 1);
   const fullHp = player.hit_points >= player.hit_max;
+  const wounds = parseWounds(player);
+  const hasWounds = wounds.length > 0;
+  const hasInfection = !!player.infection_type;
+  const needsHealer = hasWounds || hasInfection;
+
   const lines = [
     ...renderBanner('inn'),
     `${c.white}  The innkeeper smiles warmly. "Welcome, traveller!"`,
     '',
-    `${c.gray}  Your HP: ${hpColor(player.hit_points, player.hit_max)}${fmt(player.hit_points)}${c.gray}/${c.white}${fmt(player.hit_max)}`,
-    `${c.gray}  Gold:    ${c.yellow}${fmt(player.gold)}`,
-    `${c.gray}  Gems:    ${c.cyan}${player.gems}`,
+    `${c.gray}  Your HP:     ${hpColor(player.hit_points, player.hit_max)}${fmt(player.hit_points)}${c.gray}/${c.white}${fmt(player.hit_max)}`,
+    `${c.gray}  Gold:        ${c.yellow}${fmt(player.gold)}`,
+    `${c.gray}  Gems:        ${c.cyan}${player.gems}`,
+    `${c.gray}  Bandages:    ${c.white}${player.bandages || 0}`,
     '',
-    `${c.yellow}  [R]${c.white} Rest and recover all HP${c.dgray} (costs ${fmt(restCost)} gold)`,
-    player.class === 2 ? `${c.cyan}  (Mystic discount applied: 10% off)` : undefined,
-    player.gems > 0
-      ? `${c.yellow}  [G]${c.white} Use a gem to recover all HP${c.dgray} (free, uses 1 gem)`
-      : `${c.dgray}  [G] Use a gem${c.dgray} (you have no gems)`,
-    player.antidote_owned
-      ? `${c.yellow}  [U]${c.white} Use antidote${c.dgreen} (cures poison — you have one)`
-      : undefined,
-    `${c.yellow}  [L]${c.white} Leave the Inn`,
-    '',
-    fullHp ? `${c.green}  You are already at full health!` : '',
-  ].filter(l => l !== undefined);
+  ];
 
-  return buildScreen('The Inn', lines, [
-    { key: 'R', label: 'Rest (gold)', action: 'inn_rest', disabled: fullHp || player.gold < restCost },
-    { key: 'G', label: 'Use gem', action: 'inn_gem', disabled: player.gems === 0 || fullHp },
-    { key: 'U', label: 'Use antidote', action: 'inn_antidote', disabled: !player.antidote_owned },
+  if (hasWounds) {
+    lines.push(`${c.red}  Wounds:`);
+    for (const w of wounds) lines.push(`${c.dgray}    • ${woundLabel(w)}`);
+    lines.push('');
+  }
+  if (hasInfection) {
+    lines.push(`${c.magenta}  Infection: ${infectionLabel(player.infection_type, player.infection_stage)}`);
+    lines.push('');
+  }
+  if (player.retired_today) {
+    lines.push(`${c.cyan}  You are currently asleep here.`);
+    lines.push(`${c.yellow}  [W]${c.white} Wake up early`);
+  } else {
+    lines.push(`${c.yellow}  [R]${c.white} Rest and recover all HP${c.dgray} (costs ${fmt(restCost)} gold)`);
+    player.class === 2 && lines.push(`${c.cyan}  (Mystic discount applied: 10% off)`);
+    lines.push(`${c.yellow}  [T]${c.white} Retire for the Night${c.dgray} (costs ${retireCost} gold${sleeperCount > 0 ? ` — busy tonight` : ''})`);
+    player.gems > 0
+      ? lines.push(`${c.yellow}  [G]${c.white} Use a gem to recover all HP${c.dgray} (free, uses 1 gem)`)
+      : lines.push(`${c.dgray}  [G] Use a gem (you have no gems)`);
+    player.antidote_owned && lines.push(`${c.yellow}  [U]${c.white} Use antidote${c.dgreen} (cures poison)`);
+    player.bandages > 0 && lines.push(`${c.yellow}  [B]${c.white} Use a bandage${c.dgreen} (treats minor wounds)`);
+    needsHealer && lines.push(`${c.yellow}  [H]${c.white} See the Healer${c.dgreen} (treat wounds & infections)`);
+  }
+  lines.push(`${c.yellow}  [L]${c.white} Leave the Inn`);
+  if (fullHp && !player.retired_today) lines.push(`${c.green}  You are already at full health.`);
+
+  const choices = [
     { key: 'L', label: 'Leave', action: 'town' },
+  ];
+  if (player.retired_today) {
+    choices.unshift({ key: 'W', label: 'Wake up', action: 'inn_wake' });
+  } else {
+    choices.unshift(
+      { key: 'R', label: 'Rest (gold)', action: 'inn_rest', disabled: fullHp || player.gold < restCost },
+      { key: 'T', label: 'Retire for Night', action: 'inn_retire', disabled: player.gold < retireCost },
+      { key: 'G', label: 'Use gem', action: 'inn_gem', disabled: player.gems === 0 || fullHp },
+      { key: 'U', label: 'Use antidote', action: 'inn_antidote', disabled: !player.antidote_owned },
+      { key: 'B', label: 'Use bandage', action: 'inn_use_bandage', disabled: !(player.bandages > 0 && hasWounds) },
+      { key: 'H', label: 'See Healer', action: 'inn_healer', disabled: !needsHealer },
+    );
+  }
+
+  return buildScreen('The Inn', lines, choices);
+}
+
+function getInnHealerScreen(player, wounds, woundCost, infectionCost) {
+  const { woundLabel, infectionLabel } = require('./wounds');
+  const hasWounds = wounds.length > 0;
+  const hasInfection = !!player.infection_type;
+  const canCureInfection = hasInfection && player.infection_type !== 'vampire';
+  const isVampireFeasted = player.infection_type === 'vampire' || player.vampire_feasted;
+
+  const lines = [
+    ...renderBanner('inn'),
+    `${c.white}  A weathered healer looks up from her work. "Let me see those wounds."`,
+    '',
+  ];
+
+  if (hasWounds) {
+    lines.push(`${c.red}  Your wounds:`);
+    for (const w of wounds) lines.push(`${c.dgray}    • ${woundLabel(w)}`);
+    lines.push(`${c.gray}  Cost to treat all wounds: ${c.yellow}${woundCost.toLocaleString()} gold`);
+    lines.push('');
+  }
+  if (hasInfection) {
+    lines.push(`${c.magenta}  Infection: ${infectionLabel(player.infection_type, player.infection_stage)}`);
+    if (isVampireFeasted) {
+      lines.push(`${c.red}  "There is nothing I can do for you now. That which you have become cannot be undone."`);
+    } else if (canCureInfection) {
+      lines.push(`${c.gray}  Cost to treat infection: ${c.yellow}${infectionCost.toLocaleString()} gold`);
+    }
+    lines.push('');
+  }
+  if (!hasWounds && !hasInfection) {
+    lines.push(`${c.green}  "You look fine to me. Nothing to treat."`);
+  }
+
+  lines.push(`${c.yellow}  [L]${c.white} Leave`);
+
+  const choices = [{ key: 'L', label: 'Leave', action: 'inn' }];
+  if (hasWounds) choices.unshift({ key: 'W', label: `Treat Wounds (${woundCost}g)`, action: 'inn_healer_wounds', disabled: player.gold < woundCost });
+  if (canCureInfection && !isVampireFeasted) choices.unshift({ key: 'I', label: `Treat Infection (${infectionCost}g)`, action: 'inn_healer_infection', disabled: player.gold < infectionCost });
+
+  if (hasWounds) lines.splice(-1, 0, `${c.yellow}  [W]${c.white} Treat all wounds${c.dgray} (${woundCost.toLocaleString()} gold)`);
+  if (canCureInfection && !isVampireFeasted) lines.splice(-1, 0, `${c.yellow}  [I]${c.white} Treat infection${c.dgray} (${infectionCost.toLocaleString()} gold)`);
+
+  return buildScreen("The Healer's Corner", lines, choices);
+}
+
+function getAbductionDungeonScreen(player, captorName, captorsTotal) {
+  const lines = [
+    `${c.red}  You wake with a start. Cold stone. Darkness. Chains.`,
+    '',
+    `${c.white}  Your weapons and armour are gone. Your hands are bound — barely.`,
+    `${c.white}  Through the gloom you count ${c.red}${captorsTotal}${c.white} guards standing between you and freedom.`,
+    '',
+    `${c.gray}  The nearest one — a ${c.red}${captorName}${c.gray} — turns toward you.`,
+    `${c.gray}  You manage to slip your bonds. It's now or never.`,
+    '',
+    `${c.yellow}  [F]${c.white} Fight`,
+    `${c.yellow}  [R]${c.white} Try to run (20% chance)`,
+  ];
+  return buildScreen('Abducted!', lines, [
+    { key: 'F', label: 'Fight', action: 'abduction_fight' },
+    { key: 'R', label: 'Run', action: 'abduction_run' },
   ]);
+}
+
+function getAbductionFightScreen(player, captor, log, captorsDefeated, captorsTotal) {
+  const hpPct = captor.currentHp / captor.maxHp;
+  const capHpBar = hpPct > 0.5 ? c.green : hpPct > 0.25 ? c.yellow : c.red;
+  const lines = [
+    `${c.red}  ESCAPE ATTEMPT — Guard ${captorsDefeated + 1} of ${captorsTotal}`,
+    `${c.white}  ${captor.name}${c.gray}  HP: ${capHpBar}${captor.currentHp}${c.gray}/${captor.maxHp}`,
+    `${c.gray}  You: ${hpColor(player.hit_points, player.hit_max)}${player.hit_points}${c.gray}/${player.hit_max}${c.white}  ${c.dgray}(bare hands — fighting for your life)`,
+    divider(),
+    ...log.map(l => `  ${l.text || l}`),
+    '',
+    `${c.yellow}  [F]${c.white} Fight`,
+    `${c.yellow}  [P]${c.white} Power Move`,
+    `${c.yellow}  [R]${c.white} Run (20% chance)`,
+  ];
+  return buildScreen('Escape!', lines, [
+    { key: 'F', label: 'Fight', action: 'abduction_fight' },
+    { key: 'P', label: 'Power Move', action: 'abduction_power' },
+    { key: 'R', label: 'Run', action: 'abduction_run' },
+  ]);
+}
+
+function getAbductionEscapeScreen(player, goldGained, captorType) {
+  const lines = [
+    `${c.green}  You break through the last guard and sprint into the night.`,
+    '',
+    `${c.white}  Gasping, bleeding, you find your bearings. Your gear is piled in the corner of the cell.`,
+    `${c.white}  You reclaim your belongings and pocket ${c.yellow}${goldGained.toLocaleString()}${c.white} gold from your captors.`,
+    '',
+    `${c.dgray}  In a pocket you find a crumpled note: "Deliver them by morning." No signature.`,
+    `${c.dgray}  Someone arranged this. The question is who.`,
+    '',
+    `${c.yellow}  [L]${c.white} Return to town`,
+  ];
+  return buildScreen('Escaped!', lines, [{ key: 'L', label: 'Return to town', action: 'town' }]);
 }
 
 function getBankScreen(player) {
@@ -2210,6 +2343,7 @@ module.exports = {
   getLevelUpScreen, getForestEventScreen, getRescueOpportunityScreen,
   getNearDeathWaitingScreen, getNpcRescueScreen, getNearDeathScreen,
   getCrierScreen,
+  getInnHealerScreen, getAbductionDungeonScreen, getAbductionFightScreen, getAbductionEscapeScreen,
   renderBanner,
   LOCATION_BANNERS,
 };

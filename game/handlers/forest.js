@@ -3,6 +3,7 @@ const { getRandomMonster, getWeaponByNum, getArmorByNum } = require('../data');
 const { resolveRound } = require('../combat');
 const { checkLevelUp } = require('../newday');
 const { FOREST_EVENTS } = require('../forest_events');
+const { parseWounds, getWoundType, getWoundSeverity, woundChance, getBleedDamage, getCrushDefPenalty, rollInfection, resolveInfection } = require('../wounds');
 const {
   getTownScreen, getForestEncounterScreen, getForestCombatScreen,
   getForestEventScreen, getRescueOpportunityScreen, getLevelUpScreen,
@@ -16,6 +17,18 @@ async function forest({ player, req, res, pendingMessages }) {
   const forestStamina = player.stamina ?? player.fights_left ?? 10;
   if (forestStamina <= 0)
     return res.json({ ...getTownScreen(player), pendingMessages: ['`@You are too exhausted to enter the forest! Rest at the tavern.'] });
+
+  // Vampires take sunlight damage during daylight hours (6:00–18:00 UTC)
+  if (player.is_vampire) {
+    const hour = new Date().getUTCHours();
+    if (hour >= 6 && hour < 18) {
+      const sunDmg = Math.max(1, Math.floor(player.hit_max * 0.08));
+      const newHp = Math.max(1, player.hit_points - sunDmg);
+      await updatePlayer(player.id, { hit_points: newHp });
+      player = await getPlayer(player.id);
+      pendingMessages = [...pendingMessages, `\`#The sunlight sears your pale flesh for \`@${sunDmg}\`# damage as you step outside!`];
+    }
+  }
 
   const nearDeathList = await getNearDeathPlayers(player.id);
   if (nearDeathList.length > 0 && Math.random() < 0.5) {
@@ -264,8 +277,54 @@ async function forest_combat({ action, player, req, res, pendingMessages }) {
   }
 
   monster.currentHp = Math.max(0, monster.currentHp - finalPlayerDamage);
-  const newPlayerHp = Math.max(0, player.hit_points - finalMonsterDamage);
-  await updatePlayer(player.id, { hit_points: newPlayerHp });
+
+  // ── Wound & infection rolling ───────────────────────────────────────────────
+  const wounds = parseWounds(player);
+  let woundUpdates = {};
+
+  // Bleed damage from existing slash wounds
+  const slashBleed = wounds
+    .filter(w => w.type === 'slash')
+    .reduce((sum, w) => sum + getBleedDamage(w, player.hit_max), 0);
+  if (slashBleed > 0) {
+    log.push({ text: `\`@Your wounds bleed for \`@${slashBleed}\`% damage!` });
+  }
+
+  // Crush defense penalty applied before damage (already resolved via resolveRound, but log it)
+  const crushPenalty = getCrushDefPenalty(wounds);
+  if (crushPenalty > 0 && finalMonsterDamage > 0) {
+    log.push({ text: `\`8Crushed bones leave you exposed! (+${Math.round(crushPenalty * 100)}% damage taken)` });
+  }
+
+  // New wound from this round's monster hit
+  if (!fled && !monsterFled && finalMonsterDamage > 0) {
+    const severity = getWoundSeverity(monster, player);
+    const isCrit = log.some(l => l.type === 'monster_crit');
+    if (Math.random() < woundChance(severity, isCrit)) {
+      const wType = getWoundType(monster);
+      wounds.push({ type: wType, severity, source: monster.name });
+      woundUpdates.wounds = JSON.stringify(wounds);
+      log.push({ text: `\`@You suffer a ${severity === 3 ? 'critical' : severity === 2 ? 'serious' : 'minor'} ${wType} wound from the ${monster.name}!` });
+
+      // Infection roll for bite wounds
+      if (wType === 'bite') {
+        const infResult = rollInfection(monster);
+        if (infResult) {
+          const newInfType = resolveInfection(player.infection_type || '', infResult.infectionType);
+          if (newInfType !== player.infection_type) {
+            woundUpdates.infection_type = newInfType;
+            woundUpdates.infection_stage = 0;
+            woundUpdates.infection_days = 0;
+          }
+          log.push({ text: infResult.message });
+        }
+      }
+    }
+  }
+
+  const totalPlayerDamage = finalMonsterDamage + slashBleed;
+  const newPlayerHp = Math.max(0, player.hit_points - totalPlayerDamage);
+  await updatePlayer(player.id, { hit_points: newPlayerHp, ...woundUpdates });
   player = await getPlayer(player.id);
   req.session.combat = { monster, round: round + 1, history: newHistory };
 

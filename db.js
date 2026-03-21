@@ -116,6 +116,14 @@ async function getCaptivePlayers(excludeId) {
   return rows;
 }
 
+async function getRetiredPlayersInTown(townId) {
+  const { rows } = await pool.query(
+    'SELECT COUNT(*) AS count FROM players WHERE retired_today = 1 AND retired_town = $1',
+    [townId]
+  );
+  return parseInt(rows[0].count, 10);
+}
+
 async function getPlayersInTown(townId, excludeId) {
   const { rows } = await pool.query(
     `SELECT id, handle, level, class, sex, last_seen, dead, times_won, setup_complete
@@ -160,4 +168,4 @@ async function getAllBanners() {
   return rows;
 }
 
-module.exports = { pool, initDb, getPlayer, getPlayerByUsername, updatePlayer, createPlayer, getAllPlayers, getPlayersInTown, getNearDeathPlayers, getCaptivePlayers, getRecentNews, addNews, getHallOfKings, addToHallOfKings, TODAY, getBannerOverride, setBanner, deleteBanner, getAllBanners, loadBanners };
+module.exports = { pool, initDb, getPlayer, getPlayerByUsername, updatePlayer, createPlayer, getAllPlayers, getPlayersInTown, getRetiredPlayersInTown, getNearDeathPlayers, getCaptivePlayers, getRecentNews, addNews, getHallOfKings, addToHallOfKings, TODAY, getBannerOverride, setBanner, deleteBanner, getAllBanners, loadBanners };

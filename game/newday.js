@@ -1,6 +1,7 @@
 // Daily reset routine for SoT
 const { addNews, getAllPlayers } = require('../db');
 const { expForNextLevel, LEVEL_UP_GAINS, CLASS_NAMES } = require('./data');
+const { parseWounds, hasSerious, hasCritical } = require('./wounds');
 
 async function runNewDay(player, dryRun = false) {
   const news = dryRun ? async () => {} : addNews;
@@ -86,6 +87,76 @@ async function runNewDay(player, dryRun = false) {
     updates.poisoned = player.poisoned - 1;
     if (updates.poisoned === 0) {
       messages.push(`\`2The poison has worked its way out of your system.`);
+    }
+  }
+
+  // Reset retire flags each new day
+  updates.retired_today = 0;
+  updates.retired_town = '';
+
+  // ── Wound & infection overnight processing ─────────────────────────────────
+
+  const wounds = parseWounds(player);
+
+  // Retired players with serious wounds have a chance of not waking up
+  if (player.retired_today && hasCritical(wounds)) {
+    if (Math.random() < 0.25) {
+      updates.near_death = 1;
+      updates.hit_points = 1;
+      messages.push(`\`@You wake from sleep drenched in sweat and blood. Your wounds have worsened drastically overnight.`);
+      await news(`\`@${player.handle}\`% was found near death in their inn room.`);
+    }
+  } else if (player.retired_today && hasSerious(wounds)) {
+    if (Math.random() < 0.10) {
+      updates.near_death = 1;
+      updates.hit_points = 1;
+      messages.push(`\`@You barely wake — your wounds have festered badly through the night.`);
+      await news(`\`@${player.handle}\`% collapsed from their wounds at the inn.`);
+    }
+  }
+
+  // Infection progression
+  if (player.infection_type && player.infection_type !== 'vampire') {
+    const days = (player.infection_days || 0) + 1;
+    updates.infection_days = days;
+
+    if (player.infection_type === 'rot') {
+      // Rot worsens every 2 days; each stage deals HP damage
+      if (days % 2 === 0 && player.infection_stage < 2) {
+        updates.infection_stage = player.infection_stage + 1;
+        messages.push(`\`8Your festering wounds have worsened overnight. Stage ${updates.infection_stage + 1}/3.`);
+      }
+      const rotDmg = (player.infection_stage + 1) * 5;
+      const currentHp = updates.hit_points !== undefined ? updates.hit_points : player.hit_points;
+      updates.hit_points = Math.max(1, currentHp - rotDmg);
+      if (rotDmg > 0) messages.push(`\`8Rot eats at your flesh for \`@${rotDmg}\`8 damage while you sleep.`);
+    }
+
+    if (player.infection_type === 'rabies') {
+      // Rabies progresses every 3 days; stat penalties at each stage
+      if (days % 3 === 0 && player.infection_stage < 2) {
+        updates.infection_stage = player.infection_stage + 1;
+        updates.strength = Math.max(5, player.strength - 3);
+        messages.push(`\`2The rabies advances. You feel weaker and more feverish. -3 strength.`);
+      }
+    }
+
+    if (player.infection_type === 'vampire_bite') {
+      const bites = (player.vampire_bites || 0) + 1;
+      updates.vampire_bites = bites;
+      if (player.infection_stage < 2 && bites >= 3) {
+        updates.infection_stage = player.infection_stage + 1;
+        messages.push(`\`#The vampire's taint spreads through your blood. The transformation nears.`);
+      }
+      // After stage 2, random transformation
+      if (player.infection_stage >= 2 && Math.random() < 0.40) {
+        updates.infection_type = 'vampire';
+        updates.infection_stage = 0;
+        updates.is_vampire = 1;
+        messages.push(`\`#You wake with a burning thirst. The world looks different. Sharper. Darker.`);
+        messages.push(`\`#You are no longer entirely human.`);
+        await news(`\`#${player.handle}\`% has become a creature of the night!`);
+      }
     }
   }
 

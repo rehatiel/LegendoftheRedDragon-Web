@@ -5,7 +5,9 @@ const { runNewDay } = require('../game/newday');
 const {
   getTownScreen, getSetupScreen, getNearDeathWaitingScreen,
   getRoadScreen, getCampingScreen, getCaptiveScreen,
+  getAbductionDungeonScreen, getInnScreen,
 } = require('../game/engine');
+const { parseWounds, infectionLabel } = require('../game/wounds');
 
 const router = express.Router();
 const ar = fn => (req, res, next) => fn(req, res, next).catch(next);
@@ -29,6 +31,8 @@ function buildPlayerStatus(player) {
     dead:      player.dead || 0,
     lordDay:   gameDay - SERVER_START_DAY + 1,
     timeOfDay,
+    wounds:    parseWounds(player).length,
+    infection: player.infection_type ? infectionLabel(player.infection_type, player.infection_stage) : null,
   };
 }
 
@@ -41,6 +45,7 @@ const HANDLERS = {
   ...require('../game/handlers/travel'),
   ...require('../game/handlers/road'),
   ...require('../game/handlers/social'),
+  ...require('../game/handlers/abduction'),
 };
 
 // Auth guard
@@ -120,8 +125,14 @@ router.get('/state', ar(async (req, res) => {
   if (!player.setup_complete) return res.json(getSetupScreen('name'));
   if (player.near_death) return res.json(getNearDeathWaitingScreen(player));
   if (player.captive)    return res.json(getCaptiveScreen(player));
-  if (player.camping)    return res.json(getCampingScreen(player));
-  if (player.travel_to)  return res.json(getRoadScreen(player));
+  if (player.camping)      return res.json(getCampingScreen(player));
+  if (player.travel_to)   return res.json(getRoadScreen(player));
+  if (player.retired_today) return res.json(getInnScreen(player, 0));
+  if (req.session.abduction) {
+    const state = req.session.abduction;
+    const captor = state.captors[0];
+    return res.json(getAbductionDungeonScreen(player, captor.name, state.captorsDefeated + state.captors.length));
+  }
   return res.json(getTownScreen(player));
 }));
 
@@ -147,6 +158,7 @@ router.post('/action', ar(async (req, res) => {
   const NEAR_DEATH_ALLOWED = ['near_death_wait', 'near_death_accept', 'town', 'logout'];
   const CAPTIVE_ALLOWED    = ['captive_wait', 'captive_buy_freedom', 'captive_escape', 'logout'];
   const CAMPING_ALLOWED    = ['camp_wait', 'road_turn_back', 'road_encounter_fight', 'road_encounter_run', 'road_encounter_power', 'logout'];
+  const ABDUCTION_ALLOWED  = ['abduction_fight', 'abduction_power', 'abduction_run', 'logout'];
 
   if (player.near_death && !NEAR_DEATH_ALLOWED.includes(action))
     return res.json({ ...getNearDeathWaitingScreen(player), pendingMessages });
@@ -156,6 +168,12 @@ router.post('/action', ar(async (req, res) => {
 
   if (player.camping && !CAMPING_ALLOWED.includes(action))
     return res.json({ ...getCampingScreen(player), pendingMessages });
+
+  if (req.session.abduction && !ABDUCTION_ALLOWED.includes(action)) {
+    const state = req.session.abduction;
+    const captor = state.captors[0];
+    return res.json({ ...getAbductionDungeonScreen(player, captor.name, state.captorsDefeated + state.captors.length), pendingMessages });
+  }
 
   // Inline cases that mutate session directly or need LEVEL_UP_GAINS
   switch (action) {
