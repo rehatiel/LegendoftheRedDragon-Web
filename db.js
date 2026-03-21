@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://lord:lordpass@localhost:5432/lorddb',
+  connectionString: process.env.DATABASE_URL || 'postgresql://sot:sotpass@localhost:5432/sotdb',
 });
 
 async function initDb() {

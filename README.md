@@ -20,7 +20,7 @@ Requires Node.js 22+ and a PostgreSQL 16+ instance.
 
 ```bash
 npm install
-DATABASE_URL=postgresql://lord:lordpass@localhost:5432/lorddb \
+DATABASE_URL=postgresql://sot:sotpass@localhost:5432/sotdb \
 SESSION_SECRET=your-secret-here \
 node server.js
 ```
@@ -33,7 +33,7 @@ The database schema and migrations are applied automatically on startup.
 
 | Variable | Default | Description |
 |---|---|---|
-| `DATABASE_URL` | `postgresql://lord:lordpass@localhost:5432/lorddb` | PostgreSQL connection string |
+| `DATABASE_URL` | `postgresql://sot:sotpass@localhost:5432/sotdb` | PostgreSQL connection string |
 | `SESSION_SECRET` | `change-me-in-production` | Express session secret — **change this in production** |
 | `NODE_ENV` | `production` | Node environment |
 | `PORT` | `3000` | Internal HTTP port |
@@ -43,7 +43,7 @@ The database schema and migrations are applied automatically on startup.
 ## Architecture
 
 ```
-lord-web/
+sot/
 ├── server.js          — Express app entry point, session config
 ├── db.js              — PostgreSQL pool, schema, all DB functions
 ├── routes/
@@ -60,7 +60,7 @@ lord-web/
 
 **Action flow:** Every player interaction is a `POST /api/game/action` with `{ action, param }`. The route handler reads player state from DB, processes the action, writes changes, and returns a `{ title, lines[], choices[] }` screen object that the frontend renders.
 
-**Color codes:** Lines use backtick color codes inherited from LORD's original ANSI system (e.g. `` `$ `` = bright yellow, `` `@ `` = bright red). The frontend maps these to CSS classes.
+**Color codes:** Lines use backtick color codes inherited from classic BBS ANSI color system (e.g. `` `$ `` = bright yellow, `` `@ `` = bright red). The frontend maps these to CSS classes.
 
 **Session state:** Multi-round combat state (`req.session.combat`), forest depth (`req.session.forestDepth`), and rescue targets are stored in the Express session.
 

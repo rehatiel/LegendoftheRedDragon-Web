@@ -4,7 +4,7 @@ services:
     ports:
       - "3001:3000"
     environment:
-      DATABASE_URL: postgresql://lord:lordpass@db:5432/lorddb
+      DATABASE_URL: postgresql://sot:sotpass@db:5432/sotdb
       SESSION_SECRET: ${SESSION_SECRET:-change-me-in-production}
       NODE_ENV: production
       PORT: 3000
@@ -16,13 +16,13 @@ services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: lorddb
-      POSTGRES_USER: lord
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lordpass}
+      POSTGRES_DB: sotdb
+      POSTGRES_USER: sot
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sotpass}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U lord -d lorddb"]
+      test: ["CMD-SHELL", "pg_isready -U sot -d sotdb"]
       interval: 5s
       timeout: 5s
       retries: 10

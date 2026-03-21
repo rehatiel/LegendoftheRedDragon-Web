@@ -15,7 +15,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 app.use(session({
   store: new pgSession({ pool, tableName: 'session', createTableIfMissing: true }),
-  secret: process.env.SESSION_SECRET || 'lord-web-change-me',
+  secret: process.env.SESSION_SECRET || 'sot-change-me',
   resave: false,
   saveUninitialized: false,
   cookie: {
@@ -58,7 +58,7 @@ wss.on('connection', (ws) => {
 module.exports = { broadcast };
 
 initDb().then(() => {
-  server.listen(PORT, () => console.log(`LORD Web running at http://localhost:${PORT}`));
+  server.listen(PORT, () => console.log(`Scales of Tears running at http://localhost:${PORT}`));
 }).catch(err => {
   console.error('Failed to initialize database:', err);
   process.exit(1);

@@ -1,4 +1,4 @@
-// Combat resolution for LORD web port
+// Combat resolution for SoT
 
 function rollDice(min, max) {
   return min + Math.floor(Math.random() * (max - min + 1));

@@ -1,4 +1,4 @@
-// Forest events and monster ASCII art for LORD web port
+// Forest events and monster ASCII art for SoT
 // Non-combat random encounters in the forest
 
 // ─────────────────────────────────────────────────────────────────────────────

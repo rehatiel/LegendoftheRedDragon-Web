@@ -1,4 +1,4 @@
-// Screen generation engine for LORD web port
+// Screen generation engine for SoT
 const { WEAPONS, ARMORS, expForNextLevel, CLASS_NAMES, CLASS_POWER_MOVES, MONSTER_TEMPLATES, getWeaponByNum, getArmorByNum, TOWNS, SOCIAL_SPACES, SHOP_OWNERS } = require('./data');
 const { MONSTER_ART } = require('./forest_events');
 const { getBannerOverride } = require('../db');
@@ -434,7 +434,7 @@ const LOCATION_BANNERS = {
       '`6 |██||███||██|  |██||███||██|  |██||███||██|  |██||██|',
       '`6 |██||`$▄`6██||██|  |██||`$▄`6██||██|  |██||`$▄`6██||██|  |██||██|',
       '`8▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄',
-      '`6~`8·`6~`8· `$T O W N   O F   H A R O O D `6~`8·`6~`8·`6~`8·`6~`8·`6~`8·`6~`8·`6~`8·`6~`8·`6~`8·`6~`8·`6~`8·',
+      '`6~`8·`6~`8· `$T O W N   O F   D A W N M A R K `6~`8·`6~`8·`6~`8·`6~`8·`6~`8·`6~`8·`6~`8·`6~`8·`6~`8·`6~`8·',
     ],
     colors: ['dblue','brown','brown','brown','brown','dgray','brown'],
   },

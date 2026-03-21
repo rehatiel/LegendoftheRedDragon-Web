@@ -1,4 +1,4 @@
-// Tavern random encounters for LORD web port
+// Tavern random encounters for SoT
 // Fires ~40% of the time when entering the The Rusted Flagon
 // Each encounter has display data and a resolver function
 

@@ -1,4 +1,4 @@
-// LORD Web — Client
+// SoT — Client
 
 // ── Color parser ──────────────────────────────────────────────────────────────
 const COLOR_MAP = {
@@ -65,7 +65,7 @@ function updateStatusBar(status) {
   document.getElementById('sb-level').innerHTML = `<span class="c8">LV </span><span class="cp">${status.level}</span>`;
   document.getElementById('sb-location').innerHTML = `<span class="c8">@ </span><span class="ce">${escHtml(status.location)}</span>`;
   document.getElementById('sb-time').innerHTML  = `<span class="c6">${escHtml(status.timeOfDay)}</span>`;
-  document.getElementById('sb-day').innerHTML   = `<span class="c8">Day of our Lord </span><span class="c6">${status.lordDay}</span>`;
+  document.getElementById('sb-day').innerHTML   = `<span class="c8">Age of Tears </span><span class="c6">${status.lordDay}</span>`;
   const poisonEl = document.getElementById('sb-poison');
   if (status.poisoned) {
     poisonEl.innerHTML = `<span class="sb-sep">│</span><span class="c2">POISONED</span>`;
@@ -96,7 +96,7 @@ function renderScreen(data) {
   }
 
   currentScreen = data;
-  if (data.title) document.title = `${data.title} — LORD`;
+  if (data.title) document.title = `${data.title} — SoT`;
   hideInput();
 
   termOutput.innerHTML = (data.lines || []).map(l =>

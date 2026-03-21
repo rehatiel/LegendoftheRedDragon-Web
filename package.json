@@ -1,7 +1,7 @@
 {
-  "name": "lord-web",
+  "name": "scales-of-tears",
   "version": "1.0.0",
-  "description": "Legend of the Red Dragon - Web Port",
+  "description": "Scales of Tears — browser-based RPG",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

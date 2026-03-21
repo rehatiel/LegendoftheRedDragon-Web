@@ -7,7 +7,7 @@ const { LOCATION_BANNERS } = require('../game/engine');
 
 const router = express.Router();
 
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'lordadmin';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'sotadmin';
 
 // Auth middleware — checks Authorization: Bearer <password>
 router.use((req, res, next) => {

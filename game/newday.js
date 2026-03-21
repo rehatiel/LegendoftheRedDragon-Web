@@ -1,4 +1,4 @@
-// Daily reset routine for LORD web port
+// Daily reset routine for SoT
 const { addNews, getAllPlayers } = require('../db');
 const { expForNextLevel, LEVEL_UP_GAINS, CLASS_NAMES } = require('./data');
 

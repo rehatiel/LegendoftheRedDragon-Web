@@ -1,4 +1,4 @@
-// Static game data for LORD web port
+// Static game data for SoT
 
 const WEAPONS = [
   null,
