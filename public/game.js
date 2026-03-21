@@ -60,9 +60,13 @@ function updateStatusBar(status) {
   const hpClass = hpPct > 0.5 ? 'c0' : hpPct > 0.25 ? 'cd' : 'ca';
   document.getElementById('sb-name').innerHTML  = `<span class="cd">${escHtml(status.name)}</span>`;
   document.getElementById('sb-hp').innerHTML    = `<span class="c8">HP </span><span class="${hpClass}">${status.hp}/${status.hpMax}</span>`;
-  document.getElementById('sb-stamina').innerHTML = `<span class="c8">STM </span><span class="c3">${status.stamina}/10</span>`;
+  document.getElementById('sb-stamina').innerHTML = `<span class="c8">STM </span><span class="c3">${status.stamina}/${status.staminaMax}</span>`;
   document.getElementById('sb-gold').innerHTML  = `<span class="c8">GOLD </span><span class="cd">${status.gold.toLocaleString()}</span>`;
   document.getElementById('sb-level').innerHTML = `<span class="c8">LV </span><span class="cp">${status.level}</span>`;
+  const expNext = status.expNext;
+  document.getElementById('sb-exp').innerHTML = expNext
+    ? `<span class="c8">EXP </span><span class="c3">${status.exp.toLocaleString()}</span><span class="c8">/${expNext.toLocaleString()}</span>`
+    : `<span class="c8">EXP </span><span class="cd">${status.exp.toLocaleString()}</span><span class="c8"> MAX</span>`;
   document.getElementById('sb-location').innerHTML = `<span class="c8">@ </span><span class="ce">${escHtml(status.location)}</span>`;
   document.getElementById('sb-time').innerHTML  = `<span class="c6">${escHtml(status.timeOfDay)}</span>`;
   document.getElementById('sb-day').innerHTML   = `<span class="c8">Age of Tears </span><span class="c6">${status.lordDay}</span>`;
@@ -283,9 +287,16 @@ document.getElementById('reg-password').addEventListener('keydown', e => {
 
 // ── Character creation wizard ─────────────────────────────────────────────────
 const CLASS_DATA = {
-  1: { name: 'Death Knight', hp: 20, str: 18, power: 'Fatal Strike — 3× damage' },
-  2: { name: 'Mystic',       hp: 17, str: 15, power: 'Lightning Bolt — 2.5× damage' },
-  3: { name: 'Thief',        hp: 15, str: 15, power: 'Backstab — 2× guaranteed hit' },
+  1:  { name: 'Dread Knight',  hp: 28, str: 20, power: 'Soul Rend — 3× damage' },
+  2:  { name: 'Warrior',       hp: 35, str: 16, power: 'Shield Slam — 2× damage' },
+  3:  { name: 'Rogue',         hp: 22, str: 17, power: 'Backstab — 2.5× damage' },
+  4:  { name: 'Mage',          hp: 20, str: 17, power: 'Arcane Surge — 2.5× damage' },
+  5:  { name: 'Ranger',        hp: 25, str: 17, power: 'Aimed Shot — 2.5× damage' },
+  6:  { name: 'Paladin',       hp: 32, str: 17, power: 'Divine Smite — 2× damage + self-heal' },
+  7:  { name: 'Druid',         hp: 25, str: 18, power: 'Thornlash — 2× damage' },
+  8:  { name: 'Necromancer',   hp: 22, str: 19, power: 'Death Coil — 2.5× damage + poison' },
+  9:  { name: 'Elementalist',  hp: 18, str: 23, power: 'Elemental Fury — 3.5× damage (costs HP)' },
+  10: { name: 'Monk',          hp: 26, str: 18, power: 'Ki Strike — 2.5× damage' },
 };
 
 const wizard = { name: '', sex: null, classNum: null };

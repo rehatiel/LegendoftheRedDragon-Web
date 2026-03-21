@@ -273,7 +273,7 @@ html, body {
 
 /* ── Setup Wizard ────────────────────────────────────────── */
 .setup-box {
-  width: min(660px, calc(100vw - 32px));
+  width: min(920px, calc(100vw - 32px));
   background: #050505;
   border: 1px solid var(--border);
   padding: 36px;
@@ -356,12 +356,12 @@ html, body {
 .sex-btn.selected { border-color: #FFFF55; color: #FFFF55; background: #0d0d00; }
 
 /* Class cards */
-.class-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 24px; }
+.class-cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 24px; }
 
 .class-card {
   background: #0a0a0a;
   border: 2px solid #1a1a1a;
-  padding: 20px 14px;
+  padding: 16px 10px;
   cursor: pointer;
   transition: all 0.15s;
   text-align: center;
@@ -370,26 +370,41 @@ html, body {
 .class-card:hover { border-color: #444; background: #111; }
 .class-card:focus-visible { border-color: #666; }
 
+/* Selected states */
 .class-card.dk.selected { border-color: #FF5555; background: #0d0000; }
-.class-card.ms.selected { border-color: #55FFFF; background: #000d0d; }
-.class-card.th.selected { border-color: #FFFF55; background: #0d0d00; }
+.class-card.wa.selected { border-color: #FFAA00; background: #0d0800; }
+.class-card.rg.selected { border-color: #FFFF55; background: #0d0d00; }
+.class-card.mg.selected { border-color: #55FFFF; background: #000d0d; }
+.class-card.rn.selected { border-color: #55FF55; background: #000d00; }
+.class-card.pa.selected { border-color: #FFFFFF; background: #0a0a0d; }
+.class-card.dr.selected { border-color: #00AA55; background: #000d05; }
+.class-card.nc.selected { border-color: #AA55FF; background: #08000d; }
+.class-card.el.selected { border-color: #5555FF; background: #00000d; }
+.class-card.mk.selected { border-color: #AA5500; background: #0d0500; }
 
-.class-icon { font-size: 26px; margin-bottom: 10px; }
+.class-icon { font-size: 22px; margin-bottom: 8px; }
 
-.class-name { font-size: 13px; font-weight: bold; letter-spacing: 1px; margin-bottom: 10px; }
+.class-name { font-size: 12px; font-weight: bold; letter-spacing: 1px; margin-bottom: 8px; }
 .class-card.dk .class-name { color: #FF7777; }
-.class-card.ms .class-name { color: #55FFFF; }
-.class-card.th .class-name { color: #FFFF55; }
+.class-card.wa .class-name { color: #FFAA44; }
+.class-card.rg .class-name { color: #FFFF55; }
+.class-card.mg .class-name { color: #55FFFF; }
+.class-card.rn .class-name { color: #55FF55; }
+.class-card.pa .class-name { color: #DDDDFF; }
+.class-card.dr .class-name { color: #44CC77; }
+.class-card.nc .class-name { color: #CC77FF; }
+.class-card.el .class-name { color: #7777FF; }
+.class-card.mk .class-name { color: #CC8833; }
 
-.class-desc { color: #666; font-size: 11px; line-height: 1.6; margin-bottom: 14px; }
+.class-desc { color: #666; font-size: 10px; line-height: 1.5; margin-bottom: 10px; }
 
-.class-stats { display: flex; justify-content: space-around; font-size: 12px; color: #55FF55; margin-bottom: 12px; }
+.class-stats { display: flex; justify-content: space-around; font-size: 11px; color: #55FF55; margin-bottom: 10px; }
 
 .class-power {
   color: #55FFFF;
-  font-size: 11px;
+  font-size: 10px;
   border-top: 1px solid #1a1a1a;
-  padding-top: 10px;
+  padding-top: 8px;
 }
 
 /* Confirm */
@@ -469,7 +484,7 @@ html, body {
   .auth-box, .setup-box { width: 100%; padding: 20px; }
   #game-screen { padding: 8px; }
   #terminal { padding: 10px; }
-  .class-cards { grid-template-columns: 1fr; }
+  .class-cards { grid-template-columns: repeat(2, 1fr); }
   .sex-options { grid-template-columns: 1fr 1fr; }
   .choice-btn { font-size: 14px; padding: 10px 16px; }
   #game-input { font-size: 16px; } /* prevents iOS zoom on focus */

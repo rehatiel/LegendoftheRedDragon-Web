@@ -1271,12 +1271,12 @@ const FOREST_EVENTS = [
     },
   },
 
-  // ── 17. THE MAGE TOWER RUINS (Mystic only) ─────────────────────────────────
+  // ── 17. THE MAGE TOWER RUINS (Mage only) ────────────────────────────────────
   {
     id: 'mage_tower_ruins',
     title: 'The Mage Tower Ruins',
     minLevel:  3,
-    classOnly: 2,
+    classOnly: 4,
     art: [
       "  ___|___          ",
       " |  * *  |         ",
@@ -1349,7 +1349,7 @@ const FOREST_EVENTS = [
     },
   },
 
-  // ── 18. THE DARK ALTAR (Death Knight only) ─────────────────────────────────
+  // ── 18. THE DARK ALTAR (Dread Knight only) ──────────────────────────────────
   {
     id: 'dark_altar',
     title: 'The Dark Altar',

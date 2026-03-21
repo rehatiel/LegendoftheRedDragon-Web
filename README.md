@@ -69,7 +69,7 @@ sot/
 ## Game Overview
 
 - **12 levels** with 132 unique monsters (11 per level)
-- **3 classes:** Death Knight, Mystic, Thief — each with a unique power move and class-specific interactions
+- **10 classes:** Dread Knight, Warrior, Rogue, Mage, Ranger, Paladin, Druid, Necromancer, Elementalist, Monk — each with unique stats, a power move, and class-specific interactions
 - **Daily structure:** 10 forest fights and 5 PvP fights per day; HP heals overnight; bank pays 5% interest (capped at 10,000 gold/day)
 - **Forest:** 30% chance of non-combat event (20 events including class-gated encounters); forest depth system for escalating challenge
 - **Monster behaviors:** aggressive (double attack), defensive (damage reduction), venomous (poison), fleeing (escape when wounded)

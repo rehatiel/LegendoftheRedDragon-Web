@@ -129,6 +129,7 @@ async function getPlayersInTown(townId, excludeId) {
     `SELECT id, handle, level, class, sex, last_seen, dead, times_won, setup_complete
      FROM players
      WHERE current_town = $1 AND setup_complete = 1 AND id != $2
+       AND dead = 0 AND retired_today = 0
      ORDER BY level DESC, exp DESC`,
     [townId, excludeId]
   );

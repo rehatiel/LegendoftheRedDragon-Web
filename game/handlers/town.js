@@ -28,7 +28,7 @@ async function inn({ player, req, res, pendingMessages }) {
 
 async function inn_rest({ player, req, res, pendingMessages }) {
   const sleeperCount = await getRetiredPlayersInTown(player.current_town || 'dawnmark');
-  const cost = Math.max(50, Math.floor(player.level * 50 * (player.class === 2 ? 0.9 : 1.0)));
+  const cost = Math.max(50, Math.floor(player.level * 50 * (player.class === 4 ? 0.9 : 1.0)));
   if (Number(player.gold) < cost)
     return res.json({ ...getInnScreen(player, sleeperCount), pendingMessages: [`\`@Not enough gold! Costs ${cost} gold.`] });
   if (player.hit_points >= player.hit_max)

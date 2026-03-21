@@ -52,10 +52,11 @@ async function tavern_attack({ player, param, req, res, pendingMessages }) {
   const msgs = [...log.slice(-5)];
   if (attackerWon) {
     const stolen = Math.floor(Number(fullTarget.gold) * 0.25);
-    await updatePlayer(player.id, { kills: player.kills + 1, gold: Number(player.gold) + stolen });
+    const expGain = fullTarget.level * 100;
+    await updatePlayer(player.id, { kills: player.kills + 1, gold: Number(player.gold) + stolen, exp: Number(player.exp) + expGain });
     await updatePlayer(target.id, { dead: 1, gold: Math.max(0, Number(fullTarget.gold) - stolen) });
     await addNews(`\`@${player.handle}\`% defeated \`@${fullTarget.handle}\`% in the tavern and stole \`$${stolen.toLocaleString()}\`% gold!`);
-    msgs.push(`\`$You defeated ${fullTarget.handle} and stole ${stolen.toLocaleString()} gold!`);
+    msgs.push(`\`$You defeated ${fullTarget.handle} and stole ${stolen.toLocaleString()} gold! +${expGain.toLocaleString()} exp.`);
   } else {
     const hpLost = Math.floor(player.hit_points * 0.5);
     await updatePlayer(player.id, { hit_points: Math.max(1, player.hit_points - hpLost) });
@@ -69,7 +70,7 @@ async function tavern_attack({ player, param, req, res, pendingMessages }) {
 
 async function tavern_intimidate({ player, param, req, res, pendingMessages }) {
   if (player.class !== 1)
-    return res.json({ ...getTavernScreen(player, await townPlayers(player)), pendingMessages: ['`@Only Death Knights can Intimidate!'] });
+    return res.json({ ...getTavernScreen(player, await townPlayers(player)), pendingMessages: ['`@Only Dread Knights can Intimidate!'] });
   if (player.human_fights_left <= 0)
     return res.json({ ...getTavernScreen(player, await townPlayers(player)), pendingMessages: ['`@No human fights left today!'] });
 
@@ -98,7 +99,7 @@ async function tavern_intimidate({ player, param, req, res, pendingMessages }) {
 
   return res.json({ ...getTavernScreen(player, await townPlayers(player)), pendingMessages: [
     `\`7${target.handle} meets your gaze and doesn't flinch.`,
-    '`7Even a Death Knight needs more than a stare to shake this one.',
+    '`7Even a Dread Knight needs more than a stare to shake this one.',
   ]});
 }
 

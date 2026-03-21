@@ -484,18 +484,48 @@ const EXP_TABLE = [
 function expForLevel(level)     { return EXP_TABLE[Math.min(level, 12) - 1] || 600000; }
 function expForNextLevel(level) { return level >= 12 ? null : EXP_TABLE[level]; }
 
-const CLASS_NAMES = { 1: 'Death Knight', 2: 'Mystic', 3: 'Thief' };
+const CLASS_NAMES = {
+  1: 'Dread Knight',
+  2: 'Warrior',
+  3: 'Rogue',
+  4: 'Mage',
+  5: 'Ranger',
+  6: 'Paladin',
+  7: 'Druid',
+  8: 'Necromancer',
+  9: 'Elementalist',
+  10: 'Monk',
+};
 
+// damageMult: power move damage multiplier
+// sideEffect: optional secondary effect applied after the power move
+//   'self_heal'   — heals player for 10% of max HP
+//   'poison'      — applies poison to monster (3 rounds)
+//   'hp_cost'     — player spends 10% max HP to unleash the attack
 const CLASS_POWER_MOVES = {
-  1: { name: 'Fatal Strike',   desc: 'A devastating blow that staggers even the mightiest foe.', damageMult: 3.0 },
-  2: { name: 'Lightning Bolt', desc: 'A bolt of pure arcane energy that ignores armour.',         damageMult: 2.5 },
-  3: { name: 'Backstab',       desc: 'A precise strike from an unexpected angle — never misses.', damageMult: 2.0 },
+  1:  { name: 'Soul Rend',       desc: 'Tears the soul from your foe, leaving them broken and bleeding.', damageMult: 3.0 },
+  2:  { name: 'Shield Slam',     desc: 'A crushing blow from your shield that drives back even giants.',   damageMult: 2.0 },
+  3:  { name: 'Backstab',        desc: 'A precise strike from an unexpected angle — never misses.',        damageMult: 2.5 },
+  4:  { name: 'Arcane Surge',    desc: 'Raw arcane force condensed into a single devastating blast.',      damageMult: 2.5 },
+  5:  { name: 'Aimed Shot',      desc: 'A perfectly placed strike that finds every gap in the armour.',    damageMult: 2.5 },
+  6:  { name: 'Divine Smite',    desc: 'Holy power floods through your weapon — and back into your veins.', damageMult: 2.0, sideEffect: 'self_heal' },
+  7:  { name: 'Thornlash',       desc: 'The forest itself lashes out through you in a surge of fury.',     damageMult: 2.0 },
+  8:  { name: 'Death Coil',      desc: 'A coil of necrotic energy that rots the target from within.',     damageMult: 2.5, sideEffect: 'poison' },
+  9:  { name: 'Elemental Fury',  desc: 'You burn from the inside out to unleash catastrophic elemental force.', damageMult: 3.5, sideEffect: 'hp_cost' },
+  10: { name: 'Ki Strike',       desc: 'A focused burst of inner energy delivered in a single perfect blow.', damageMult: 2.5 },
 };
 
 const LEVEL_UP_GAINS = {
-  1: { hp: 25, strength: 5 },
-  2: { hp: 20, strength: 3 },
-  3: { hp: 15, strength: 4 },
+  1:  { hp: 7,  strength: 4 },  // Dread Knight   — high power growth
+  2:  { hp: 8,  strength: 3 },  // Warrior         — highest HP growth
+  3:  { hp: 5,  strength: 3 },  // Rogue           — low HP, agile
+  4:  { hp: 4,  strength: 4 },  // Mage            — low HP, high spell power
+  5:  { hp: 5,  strength: 3 },  // Ranger          — balanced
+  6:  { hp: 7,  strength: 3 },  // Paladin         — high HP, moderate power
+  7:  { hp: 6,  strength: 3 },  // Druid           — balanced
+  8:  { hp: 5,  strength: 4 },  // Necromancer     — low HP, high power
+  9:  { hp: 3,  strength: 5 },  // Elementalist    — extreme glass cannon
+  10: { hp: 6,  strength: 4 },  // Monk            — balanced, high power growth
 };
 
 // ── World map ─────────────────────────────────────────────────────────────────

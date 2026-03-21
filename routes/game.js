@@ -1,6 +1,6 @@
 const express = require('express');
 const { getPlayer, updatePlayer, addNews, TODAY } = require('../db');
-const { LEVEL_UP_GAINS, TOWNS } = require('../game/data');
+const { LEVEL_UP_GAINS, TOWNS, expForNextLevel } = require('../game/data');
 const { runNewDay } = require('../game/newday');
 const {
   getTownScreen, getSetupScreen, getNearDeathWaitingScreen,
@@ -25,7 +25,10 @@ function buildPlayerStatus(player) {
     hp:        player.hit_points,
     hpMax:     player.hit_max,
     gold:      Number(player.gold),
-    stamina:   player.stamina ?? player.fights_left ?? 10,
+    stamina:    player.stamina ?? player.fights_left ?? 10,
+    staminaMax: player.stamina_max || 10,
+    exp:        Number(player.exp),
+    expNext:    expForNextLevel(player.level),
     level:     player.level,
     location:  townName,
     poisoned:  player.poisoned || 0,
@@ -80,11 +83,11 @@ router.post('/setup', ar(async (req, res) => {
   if (action === 'setup_all') {
     const name = (req.body.name || '').trim();
     const sex = parseInt(req.body.sex) === 5 ? 5 : 0;
-    const cls = [1, 2, 3].includes(parseInt(req.body.classNum)) ? parseInt(req.body.classNum) : 1;
+    const cls = [1,2,3,4,5,6,7,8,9,10].includes(parseInt(req.body.classNum)) ? parseInt(req.body.classNum) : 1;
     if (name.length < 2 || name.length > 20)
       return res.status(400).json({ error: 'Name must be 2–20 characters.' });
-    const classHp  = { 1: 30, 2: 25, 3: 22 };
-    const classStr = { 1: 18, 2: 15, 3: 15 };
+    const classHp  = { 1: 28, 2: 35, 3: 22, 4: 20, 5: 25, 6: 32, 7: 25, 8: 22, 9: 18, 10: 26 };
+    const classStr = { 1: 20, 2: 16, 3: 17, 4: 22, 5: 17, 6: 17, 7: 18, 8: 19, 9: 23, 10: 18 };
     await updatePlayer(player.id, {
       handle: name, sex, class: cls,
       hit_points: classHp[cls], hit_max: classHp[cls],
@@ -107,9 +110,9 @@ router.post('/setup', ar(async (req, res) => {
   }
 
   if (action === 'setup_class') {
-    const cls = [1, 2, 3].includes(parseInt(param)) ? parseInt(param) : 1;
-    const classHp  = { 1: 30, 2: 25, 3: 22 };
-    const classStr = { 1: 18, 2: 15, 3: 15 };
+    const cls = [1,2,3,4,5,6,7,8,9,10].includes(parseInt(param)) ? parseInt(param) : 1;
+    const classHp  = { 1: 28, 2: 35, 3: 22, 4: 20, 5: 25, 6: 32, 7: 25, 8: 22, 9: 18, 10: 26 };
+    const classStr = { 1: 20, 2: 16, 3: 17, 4: 22, 5: 17, 6: 17, 7: 18, 8: 19, 9: 23, 10: 18 };
     await updatePlayer(player.id, {
       class: cls,
       hit_points: classHp[cls], hit_max: classHp[cls],

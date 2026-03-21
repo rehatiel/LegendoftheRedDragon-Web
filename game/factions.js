@@ -75,9 +75,16 @@ const FACTIONS = {
 
 // Starting rep bonuses by class (designed to be extended as class system grows)
 const CLASS_STARTING_REP = {
-  1: { necromancers: 10 },             // Death Knight — affinity with dark power
-  2: { druids: 5, knights: 5 },        // Mystic — balanced, leans arcane-natural
-  3: { guild: 10, merchants: -5 },     // Thief — connected to Guild, burned bridges with League
+  1:  { necromancers: 10, knights: -5 },           // Dread Knight — dark arts, distrusted by Knights
+  2:  { knights: 10 },                             // Warrior — lawful fighter, Knights approve
+  3:  { guild: 10, merchants: -5 },                // Rogue — Guild connected, League distrusts
+  4:  { necromancers: 5, druids: 5 },              // Mage — arcane straddles nature and darkness
+  5:  { druids: 10 },                              // Ranger — deep forest bond with Druid Circle
+  6:  { knights: 15, necromancers: -10 },          // Paladin — holy warrior, anathema to Conclave
+  7:  { druids: 15 },                              // Druid — obvious
+  8:  { necromancers: 15, knights: -10 },          // Necromancer — Conclave ally, Knight enemy
+  9:  { necromancers: 5 },                         // Elementalist — arcane, leans toward Conclave
+  10: {},                                          // Monk — spiritual neutrality, no faction ties
 };
 
 function getFactionRep(player, factionId) {

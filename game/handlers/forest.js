@@ -227,12 +227,27 @@ async function forest_combat({ action, player, req, res, pendingMessages }) {
 
   if (act === 'power' && player.skill_uses_left <= 0)
     return res.json({ ...getForestEncounterScreen(player, monster), pendingMessages: ['`@No skill uses left!'] });
+
+  const { CLASS_POWER_MOVES } = require('../data');
+  const activePowerMove = act === 'power' ? (CLASS_POWER_MOVES[player.class] || {}) : {};
+  const preLog = [];
+
   if (act === 'power') {
+    // Elementalist: Elemental Fury costs 10% max HP to cast
+    if (activePowerMove.sideEffect === 'hp_cost') {
+      const cost = Math.max(1, Math.floor(player.hit_max * 0.10));
+      if (player.hit_points <= cost)
+        return res.json({ ...getForestEncounterScreen(player, monster), pendingMessages: ['`@You don\'t have enough HP to channel Elemental Fury!'] });
+      await updatePlayer(player.id, { hit_points: player.hit_points - cost });
+      player = await getPlayer(player.id);
+      preLog.push({ text: `\`@You burn \`@${cost}\`% HP to fuel the elemental surge!` });
+    }
     await updatePlayer(player.id, { skill_uses_left: player.skill_uses_left - 1 });
     player = await getPlayer(player.id);
   }
 
   const { playerDamage, monsterDamage, poisonDamage, fled, monsterFled, appliedPoison, log } = resolveRound(player, monster, act);
+  if (preLog.length) log.unshift(...preLog);
   const newHistory = [...history, ...log].slice(-30);
 
   let finalPlayerDamage = playerDamage;
@@ -294,7 +309,31 @@ async function forest_combat({ action, player, req, res, pendingMessages }) {
     return res.json(getForestCombatScreen(player, monster, log, true, false, round, history, depth));
   }
 
+  // Monster poison DOT from previous rounds (Necromancer Death Coil)
+  if (combat.monsterPoisoned && !fled && !monsterFled) {
+    const dotDmg = Math.max(1, Math.floor(monster.maxHp * 0.05));
+    monster.currentHp = Math.max(0, monster.currentHp - dotDmg);
+    log.push({ text: `\`2Death Coil's poison eats at the ${monster.name} for \`@${dotDmg}\`2 damage!` });
+  }
+
   monster.currentHp = Math.max(0, monster.currentHp - finalPlayerDamage);
+
+  // ── Power move side effects (post-hit) ──────────────────────────────────────
+  if (act === 'power' && !fled && !monsterFled) {
+    // Paladin Divine Smite: heal 10% max HP after a successful hit
+    if (activePowerMove.sideEffect === 'self_heal' && finalPlayerDamage > 0) {
+      const healAmt = Math.max(1, Math.floor(player.hit_max * 0.10));
+      const newHp = Math.min(player.hit_max, player.hit_points + healAmt);
+      await updatePlayer(player.id, { hit_points: newHp });
+      player = await getPlayer(player.id);
+      log.push({ text: `\`0Divine light flows through you, restoring \`$${healAmt}\`0 HP!` });
+    }
+    // Necromancer Death Coil: apply lingering poison to the monster
+    if (activePowerMove.sideEffect === 'poison' && finalPlayerDamage > 0) {
+      combat.monsterPoisoned = true;
+      log.push({ text: `\`2Death Coil's poison seeps into the ${monster.name}!` });
+    }
+  }
 
   // ── Wound & infection rolling ───────────────────────────────────────────────
   const wounds = parseWounds(player);
@@ -344,7 +383,7 @@ async function forest_combat({ action, player, req, res, pendingMessages }) {
   const newPlayerHp = Math.max(0, player.hit_points - totalPlayerDamage);
   await updatePlayer(player.id, { hit_points: newPlayerHp, ...woundUpdates });
   player = await getPlayer(player.id);
-  req.session.combat = { monster, round: round + 1, history: newHistory };
+  req.session.combat = { monster, round: round + 1, history: newHistory, monsterPoisoned: combat.monsterPoisoned || false };
 
   if (monster.currentHp <= 0) {
     req.session.combat = null;
@@ -445,7 +484,7 @@ async function forest_deeper({ player, req, res, pendingMessages }) {
 
 async function forest_rage({ player, req, res }) {
   if (player.class !== 1)
-    return res.json({ ...getTownScreen(player), pendingMessages: ['`@Only Death Knights can Rage!'] });
+    return res.json({ ...getTownScreen(player), pendingMessages: ['`@Only Dread Knights can Rage!'] });
   const combat = req.session.combat;
   if (!combat) return res.json(getTownScreen(player));
 

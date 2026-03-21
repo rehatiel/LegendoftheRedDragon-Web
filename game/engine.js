@@ -925,12 +925,12 @@ function getWeaponShopScreen(player) {
 
   lines.push('');
   if (player.class === 3) {
-    lines.push(`${c.yellow}  [S]${c.green} Acquire an item (Thief only)${c.dgray} — 20% chance, dangerous if caught`);
+    lines.push(`${c.yellow}  [S]${c.green} Acquire an item (Rogue only)${c.dgray} — 20% chance, dangerous if caught`);
   }
   lines.push(`${c.yellow}  Enter weapon number to buy (or ${c.white}0${c.yellow} to leave):`);
 
   const choices = [{ key: '0', label: 'Leave Shop', action: 'town' }];
-  if (player.class === 3) choices.push({ key: 'S', label: 'Thief Acquire', action: 'shop_steal_weapon' });
+  if (player.class === 3) choices.push({ key: 'S', label: 'Rogue Acquire', action: 'shop_steal_weapon' });
 
   return buildScreen('Weapon Shop', lines, choices, { needsInput: true, inputLabel: 'Weapon # (0 to leave):', inputAction: 'buy_weapon' });
 }
@@ -998,19 +998,19 @@ function getArmorShopScreen(player) {
 
   lines.push('');
   if (player.class === 3) {
-    lines.push(`${c.yellow}  [S]${c.green} Acquire an item (Thief only)${c.dgray} — 20% chance, dangerous if caught`);
+    lines.push(`${c.yellow}  [S]${c.green} Acquire an item (Rogue only)${c.dgray} — 20% chance, dangerous if caught`);
   }
   lines.push(`${c.yellow}  Enter armour number to buy (or ${c.white}0${c.yellow} to leave):`);
 
   const choices = [{ key: '0', label: 'Leave Shop', action: 'town' }];
-  if (player.class === 3) choices.push({ key: 'S', label: 'Thief Acquire', action: 'shop_steal_armor' });
+  if (player.class === 3) choices.push({ key: 'S', label: 'Rogue Acquire', action: 'shop_steal_armor' });
 
   return buildScreen('Armour Shop', lines, choices, { needsInput: true, inputLabel: 'Armour # (0 to leave):', inputAction: 'buy_armor' });
 }
 
 function getInnScreen(player, sleeperCount = 0) {
   const { parseWounds, woundLabel, infectionLabel, hasSerious } = require('./wounds');
-  const restCost = Math.max(50, Math.floor(player.level * 50 * (player.class === 2 ? 0.9 : 1.0)));
+  const restCost = Math.max(50, Math.floor(player.level * 50 * (player.class === 4 ? 0.9 : 1.0)));
   const retireCost = Math.max(1, sleeperCount + 1);
   const fullHp = player.hit_points >= player.hit_max;
   const wounds = parseWounds(player);
@@ -1043,7 +1043,7 @@ function getInnScreen(player, sleeperCount = 0) {
     lines.push(`${c.yellow}  [W]${c.white} Wake up`);
   } else {
     lines.push(`${c.yellow}  [R]${c.white} Rest and recover all HP${c.dgray} (costs ${fmt(restCost)} gold)`);
-    player.class === 2 && lines.push(`${c.cyan}  (Mystic discount applied: 10% off)`);
+    player.class === 4 && lines.push(`${c.cyan}  (Mage discount applied: 10% off)`);
     lines.push(`${c.yellow}  [T]${c.white} Retire for the Night${c.dgray} (costs ${retireCost} gold${sleeperCount > 0 ? ` — busy tonight` : ''})`);
     player.gems > 0
       ? lines.push(`${c.yellow}  [G]${c.white} Use a gem to recover all HP${c.dgray} (free, uses 1 gem)`)
@@ -1306,7 +1306,7 @@ function getTavernScreen(player, otherPlayers) {
   lines.push(`${c.yellow}  [B]${c.white} Buy the House a Round   ${c.dgray}(50 gold — +1 charm)`);
   lines.push(`${c.yellow}  [A]${c.white} Challenge a Player      ${c.dgray}(enter their number)`);
   if (player.class === 1) {
-    lines.push(`${c.red}  [I]${c.white} Intimidate a player     ${c.dgray}(Death Knight only)`);
+    lines.push(`${c.red}  [I]${c.white} Intimidate a player     ${c.dgray}(Dread Knight only)`);
   }
   lines.push(`${c.yellow}  [L]${c.white} Leave the Tavern`);
 
@@ -1554,21 +1554,27 @@ function getSetupScreen(step) {
       divider(),
       `${c.white}  Choose your class:`,
       '',
-      `${c.yellow}  [1]${c.white} Death Knight`,
-      `${c.gray}      Powerful warrior, masters of strength and brute force.`,
-      `${c.gray}      Power Move: ${c.cyan}Fatal Strike${c.gray} (3x damage)`,
-      '',
-      `${c.yellow}  [2]${c.white} Mystic`,
-      `${c.gray}      Wielder of arcane forces. Balanced and versatile.`,
-      `${c.gray}      Power Move: ${c.cyan}Lightning Bolt${c.gray} (2.5x damage)`,
-      '',
-      `${c.yellow}  [3]${c.white} Thief`,
-      `${c.gray}      Quick and cunning. High agility and charm.`,
-      `${c.gray}      Power Move: ${c.cyan}Backstab${c.gray} (2x damage, guaranteed)`,
+      `${c.yellow}  [1]${c.white} Dread Knight   ${c.dgray}HP:28 STR:20  ${c.red}Soul Rend${c.gray} (3× dmg) — Dark arts warrior`,
+      `${c.yellow}  [2]${c.white} Warrior         ${c.dgray}HP:35 STR:16  ${c.red}Shield Slam${c.gray} (2× dmg) — Iron-willed tank`,
+      `${c.yellow}  [3]${c.white} Rogue           ${c.dgray}HP:22 STR:17  ${c.red}Backstab${c.gray} (2.5× dmg) — Shadow striker`,
+      `${c.yellow}  [4]${c.white} Mage            ${c.dgray}HP:20 STR:17  ${c.red}Arcane Surge${c.gray} (2.5× dmg) — Arcane scholar`,
+      `${c.yellow}  [5]${c.white} Ranger          ${c.dgray}HP:25 STR:17  ${c.red}Aimed Shot${c.gray} (2.5× dmg) — Forest hunter`,
+      `${c.yellow}  [6]${c.white} Paladin         ${c.dgray}HP:32 STR:17  ${c.red}Divine Smite${c.gray} (2× dmg + heal) — Holy warrior`,
+      `${c.yellow}  [7]${c.white} Druid           ${c.dgray}HP:25 STR:18  ${c.red}Thornlash${c.gray} (2× dmg) — Nature's warden`,
+      `${c.yellow}  [8]${c.white} Necromancer     ${c.dgray}HP:22 STR:19  ${c.red}Death Coil${c.gray} (2.5× + poison) — Death wielder`,
+      `${c.yellow}  [9]${c.white} Elementalist    ${c.dgray}HP:18 STR:23  ${c.red}Elemental Fury${c.gray} (3.5× dmg) — Glass cannon`,
+      `${c.yellow}  [0]${c.white} Monk            ${c.dgray}HP:26 STR:18  ${c.red}Ki Strike${c.gray} (2.5× dmg) — Spiritual fighter`,
     ], [
-      { key: '1', label: 'Death Knight', action: 'setup_class', param: '1' },
-      { key: '2', label: 'Mystic', action: 'setup_class', param: '2' },
-      { key: '3', label: 'Thief', action: 'setup_class', param: '3' },
+      { key: '1', label: 'Dread Knight',  action: 'setup_class', param: '1' },
+      { key: '2', label: 'Warrior',       action: 'setup_class', param: '2' },
+      { key: '3', label: 'Rogue',         action: 'setup_class', param: '3' },
+      { key: '4', label: 'Mage',          action: 'setup_class', param: '4' },
+      { key: '5', label: 'Ranger',        action: 'setup_class', param: '5' },
+      { key: '6', label: 'Paladin',       action: 'setup_class', param: '6' },
+      { key: '7', label: 'Druid',         action: 'setup_class', param: '7' },
+      { key: '8', label: 'Necromancer',   action: 'setup_class', param: '8' },
+      { key: '9', label: 'Elementalist',  action: 'setup_class', param: '9' },
+      { key: '0', label: 'Monk',          action: 'setup_class', param: '10' },
     ]);
   }
 }
