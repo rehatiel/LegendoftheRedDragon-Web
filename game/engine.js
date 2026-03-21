@@ -1040,7 +1040,7 @@ function getInnScreen(player, sleeperCount = 0) {
   }
   if (player.retired_today) {
     lines.push(`${c.cyan}  You are currently asleep here.`);
-    lines.push(`${c.yellow}  [W]${c.white} Wake up early`);
+    lines.push(`${c.yellow}  [W]${c.white} Wake up`);
   } else {
     lines.push(`${c.yellow}  [R]${c.white} Rest and recover all HP${c.dgray} (costs ${fmt(restCost)} gold)`);
     player.class === 2 && lines.push(`${c.cyan}  (Mystic discount applied: 10% off)`);
@@ -1052,22 +1052,21 @@ function getInnScreen(player, sleeperCount = 0) {
     player.bandages > 0 && lines.push(`${c.yellow}  [B]${c.white} Use a bandage${c.dgreen} (treats minor wounds)`);
     needsHealer && lines.push(`${c.yellow}  [H]${c.white} See the Healer${c.dgreen} (treat wounds & infections)`);
   }
-  lines.push(`${c.yellow}  [L]${c.white} Leave the Inn`);
+  if (!player.retired_today) lines.push(`${c.yellow}  [L]${c.white} Leave the Inn`);
   if (fullHp && !player.retired_today) lines.push(`${c.green}  You are already at full health.`);
 
-  const choices = [
-    { key: 'L', label: 'Leave', action: 'town' },
-  ];
+  const choices = [];
   if (player.retired_today) {
-    choices.unshift({ key: 'W', label: 'Wake up', action: 'inn_wake' });
+    choices.push({ key: 'W', label: 'Wake up', action: 'inn_wake' });
   } else {
-    choices.unshift(
+    choices.push(
       { key: 'R', label: 'Rest (gold)', action: 'inn_rest', disabled: fullHp || player.gold < restCost },
       { key: 'T', label: 'Retire for Night', action: 'inn_retire', disabled: player.gold < retireCost },
       { key: 'G', label: 'Use gem', action: 'inn_gem', disabled: player.gems === 0 || fullHp },
       { key: 'U', label: 'Use antidote', action: 'inn_antidote', disabled: !player.antidote_owned },
       { key: 'B', label: 'Use bandage', action: 'inn_use_bandage', disabled: !(player.bandages > 0 && hasWounds) },
       { key: 'H', label: 'See Healer', action: 'inn_healer', disabled: !needsHealer },
+      { key: 'L', label: 'Leave', action: 'town' },
     );
   }
 
