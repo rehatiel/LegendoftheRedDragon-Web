@@ -7,13 +7,30 @@ const { LOCATION_BANNERS } = require('../game/engine');
 
 const router = express.Router();
 
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'sotadmin';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+if (!ADMIN_PASSWORD) {
+  console.error('FATAL: ADMIN_PASSWORD environment variable is not set');
+  process.exit(1);
+}
+
+// Timing-safe string comparison to prevent timing-oracle attacks
+function safeCompare(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const aBuf = Buffer.from(a);
+  const bBuf = Buffer.from(b);
+  // Always run timingSafeEqual on equal-length buffers to avoid length leaks
+  const padded = Buffer.alloc(Math.max(aBuf.length, bBuf.length));
+  aBuf.copy(padded);
+  const ref = Buffer.alloc(padded.length);
+  bBuf.copy(ref);
+  return aBuf.length === bBuf.length && crypto.timingSafeEqual(padded, ref);
+}
 
 // Auth middleware — checks Authorization: Bearer <password>
 router.use((req, res, next) => {
   const auth = req.headers.authorization || '';
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-  if (token !== ADMIN_PASSWORD) return res.status(401).json({ error: 'Unauthorized' });
+  if (!safeCompare(token, ADMIN_PASSWORD)) return res.status(401).json({ error: 'Unauthorized' });
   next();
 });
 
@@ -21,9 +38,14 @@ const ar = fn => (req, res, next) => fn(req, res, next).catch(next);
 
 // ── Players ───────────────────────────────────────────────────────────────────
 
-// GET /api/admin/players — list all players (full records)
+// GET /api/admin/players — list all players (full records), paginated
 router.get('/players', ar(async (req, res) => {
-  const { rows } = await pool.query('SELECT * FROM players ORDER BY level DESC, exp DESC');
+  const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 100));
+  const offset = Math.max(0, parseInt(req.query.offset) || 0);
+  const { rows } = await pool.query(
+    'SELECT * FROM players ORDER BY level DESC, exp DESC LIMIT $1 OFFSET $2',
+    [limit, offset]
+  );
   res.json(rows);
 }));
 
@@ -35,28 +57,46 @@ router.get('/players/:id', ar(async (req, res) => {
 }));
 
 // PUT /api/admin/players/:id — update player fields (whitelist enforced)
-const EDITABLE_FIELDS = new Set([
-  'handle', 'sex', 'class', 'level', 'exp', 'gold', 'bank', 'gems',
+// Integer fields — value must be a safe integer
+const INTEGER_FIELDS = new Set([
+  'sex', 'class', 'level', 'exp', 'gold', 'bank', 'gems',
   'hit_points', 'hit_max', 'strength', 'defense', 'charm', 'stamina',
   'kills', 'lays', 'kids', 'has_horse', 'married_to',
-  'dead', 'near_death', 'near_death_by', 'poisoned',
-  'captive', 'captive_location', 'camping',
-  'travel_to', 'travel_segments_done', 'travel_segments_total',
-  'current_town', 'weapon_name', 'weapon_num', 'arm_name', 'arm_num',
+  'dead', 'near_death', 'poisoned',
+  'captive', 'camping',
+  'travel_segments_done', 'travel_segments_total',
+  'weapon_num', 'arm_num',
   'antidote_owned', 'forge_weapon_upgraded', 'forge_armor_upgraded',
   'setup_complete', 'skill_points', 'skill_uses_left',
   'fights_left', 'human_fights_left', 'banned',
 ]);
+// String fields
+const STRING_FIELDS = new Set([
+  'handle', 'near_death_by', 'captive_location', 'travel_to',
+  'current_town', 'weapon_name', 'arm_name',
+]);
+
+const EDITABLE_FIELDS = new Set([...INTEGER_FIELDS, ...STRING_FIELDS]);
 
 router.put('/players/:id', ar(async (req, res) => {
   const { id } = req.params;
   const fields = req.body;
   const safe = {};
   for (const [k, v] of Object.entries(fields)) {
-    if (EDITABLE_FIELDS.has(k)) safe[k] = v;
+    if (!EDITABLE_FIELDS.has(k)) continue;
+    if (INTEGER_FIELDS.has(k)) {
+      if (!Number.isInteger(v) && !(typeof v === 'number' && Number.isFinite(v)))
+        return res.status(400).json({ error: `Field "${k}" must be a number` });
+      safe[k] = Math.trunc(Number(v));
+    } else {
+      if (typeof v !== 'string')
+        return res.status(400).json({ error: `Field "${k}" must be a string` });
+      safe[k] = v;
+    }
   }
   if (!Object.keys(safe).length) return res.status(400).json({ error: 'No valid fields' });
   await updatePlayer(parseInt(id), safe);
+  console.log(`[ADMIN] PUT /players/${id} — fields: ${Object.keys(safe).join(', ')}`);
   const { rows } = await pool.query('SELECT * FROM players WHERE id = $1', [id]);
   res.json(rows[0]);
 }));
@@ -68,6 +108,7 @@ router.delete('/players/:id', ar(async (req, res) => {
   if (!rows[0]) return res.status(404).json({ error: 'Player not found' });
   await pool.query('DELETE FROM players WHERE id = $1', [id]);
   await addNews(`\`8[ADMIN] Player "${rows[0].handle}" has been removed.`);
+  console.log(`[ADMIN] DELETE /players/${id} — removed "${rows[0].handle}"`);
   res.json({ ok: true });
 }));
 
@@ -75,9 +116,10 @@ router.delete('/players/:id', ar(async (req, res) => {
 router.post('/players/:id/password', ar(async (req, res) => {
   const { id } = req.params;
   const { password } = req.body;
-  if (!password || password.length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters' });
+  if (!password || password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
   const hash = await bcrypt.hash(password, 10);
   await pool.query('UPDATE players SET password_hash = $1 WHERE id = $2', [hash, id]);
+  console.log(`[ADMIN] POST /players/${id}/password — password reset`);
   res.json({ ok: true });
 }));
 
@@ -86,6 +128,7 @@ router.post('/players/:id/ban', ar(async (req, res) => {
   const { id } = req.params;
   const { banned } = req.body;
   await pool.query('UPDATE players SET banned = $1 WHERE id = $2', [banned ? 1 : 0, id]);
+  console.log(`[ADMIN] POST /players/${id}/ban — banned=${!!banned}`);
   res.json({ ok: true, banned: !!banned });
 }));
 
@@ -100,6 +143,7 @@ router.post('/players/:id/impersonate', ar(async (req, res) => {
   if (!rows[0]) return res.status(404).json({ error: 'Player not found' });
   const token = crypto.randomBytes(24).toString('hex');
   impersonateTokens.set(token, { playerId: rows[0].id, expires: Date.now() + 5 * 60 * 1000 });
+  console.log(`[ADMIN] impersonate token generated for player ${rows[0].id} ("${rows[0].handle}")`);
   res.json({ ok: true, token });
 }));
 

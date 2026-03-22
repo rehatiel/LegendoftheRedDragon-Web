@@ -5,11 +5,42 @@ const { runNewDay } = require('../game/newday');
 
 const router = express.Router();
 
+// Simple in-memory rate limiter: max 10 auth attempts per IP per 15 minutes
+const authAttempts = new Map();
+const RATE_LIMIT_MAX = 10;
+const RATE_LIMIT_WINDOW = 15 * 60 * 1000;
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of authAttempts.entries()) {
+    if (now > entry.resetAt) authAttempts.delete(ip);
+  }
+}, RATE_LIMIT_WINDOW);
+
+function checkAuthRate(req, res) {
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+  const now = Date.now();
+  let entry = authAttempts.get(ip);
+  if (!entry || now > entry.resetAt) {
+    entry = { count: 0, resetAt: now + RATE_LIMIT_WINDOW };
+    authAttempts.set(ip, entry);
+  }
+  entry.count++;
+  if (entry.count > RATE_LIMIT_MAX) {
+    const retryAfter = Math.ceil((entry.resetAt - now) / 1000);
+    res.set('Retry-After', String(retryAfter));
+    res.status(429).json({ error: 'Too many attempts. Please try again later.' });
+    return false;
+  }
+  return true;
+}
+
 router.post('/register', async (req, res) => {
+  if (!checkAuthRate(req, res)) return;
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Username and password required.' });
   if (username.length < 2 || username.length > 20) return res.status(400).json({ error: 'Username must be 2–20 characters.' });
-  if (password.length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters.' });
+  if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters.' });
 
   const existing = await getPlayerByUsername(username);
   if (existing) return res.status(400).json({ error: 'That username is already taken.' });
@@ -22,6 +53,7 @@ router.post('/register', async (req, res) => {
 });
 
 router.post('/login', async (req, res) => {
+  if (!checkAuthRate(req, res)) return;
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Username and password required.' });
 
@@ -70,6 +102,7 @@ router.get('/impersonate/:token', async (req, res) => {
     return res.status(400).send('<p>Impersonation token invalid or expired.</p>');
   }
   tokens.delete(req.params.token);
+  console.log(`[ADMIN] Impersonation token used — logged in as player ${entry.playerId}`);
   req.session.playerId = entry.playerId;
   res.redirect('/');
 });

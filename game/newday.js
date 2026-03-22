@@ -74,8 +74,8 @@ async function runNewDay(player, dryRun = false) {
     updates.near_death = 0;
     updates.poisoned   = 0;
     updates.hit_points = Math.max(5, Math.floor(player.hit_max * 0.5));
-    const goldLost = Math.floor(player.gold * 0.5);
-    updates.gold = player.gold - goldLost;
+    const goldLost = Math.floor(Number(player.gold) * 0.5);
+    updates.gold = Math.max(0, Number(player.gold) - goldLost);
     if (!messages.some(m => m.includes('perished'))) {
       messages.push(`\`@You have been reincarnated!\`% You lost \`$${goldLost.toLocaleString()}\`% gold.`);
     } else {
@@ -289,7 +289,7 @@ async function runNewDay(player, dryRun = false) {
   }
 
   // ── Bank interest ─────────────────────────────────────────────────────────
-  if (player.bank > 0) {
+  if (Number.isFinite(player.bank) && player.bank > 0) {
     const interest = Math.min(10000, Math.floor(player.bank * 0.05));
     if (interest > 0) {
       updates.bank = player.bank + interest;
@@ -317,8 +317,10 @@ async function runNewDay(player, dryRun = false) {
   }
 
   // ── Level-up check ────────────────────────────────────────────────────────
+  // Skip if the player just lost a level from death — the level penalty must stick.
+  const justLostLevel = (player.dead || updates.dead === 1) && updates.level !== undefined && updates.level < player.level;
   const currentLevel = updates.level || player.level;
-  if (currentLevel < 12) {
+  if (!justLostLevel && currentLevel < 12) {
     const nextExp = expForNextLevel(currentLevel);
     if (nextExp !== null && player.exp >= nextExp) {
       const newLevel = currentLevel + 1;

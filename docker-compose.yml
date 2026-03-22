@@ -5,7 +5,8 @@ services:
       - "3001:3000"
     environment:
       DATABASE_URL: postgresql://sot:sotpass@db:5432/sotdb
-      SESSION_SECRET: ${SESSION_SECRET:-change-me-in-production}
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET must be set in environment}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD must be set in environment}
       NODE_ENV: production
       PORT: 3000
     depends_on:

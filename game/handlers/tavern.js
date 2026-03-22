@@ -1,4 +1,4 @@
-const { getPlayer, updatePlayer, getPlayersInTown, addNews } = require('../../db');
+const { pool, getPlayer, updatePlayer, getPlayersInTown, addNews } = require('../../db');
 const { getRandomMonster, TOWNS } = require('../data');
 const { resolvePvP } = require('../combat');
 const { getTownScreen, getTavernScreen, getTavernDrinkScreen, getTavernEncounterScreen } = require('../engine');
@@ -36,32 +36,71 @@ async function tavern_encounter({ player, param, req, res, pendingMessages }) {
 
 async function tavern_attack({ player, param, req, res, pendingMessages }) {
   const others = await townPlayers(player);
-  const target = others[parseInt(param) - 1];
+  const targetIdx = parseInt(param) - 1;
+  const target = Number.isInteger(targetIdx) && targetIdx >= 0 ? others[targetIdx] : undefined;
 
   if (!target)
     return res.json({ ...getTavernScreen(player, await townPlayers(player)), pendingMessages: ['`@Invalid target.'] });
-  if (player.human_fights_left <= 0)
-    return res.json({ ...getTavernScreen(player, await townPlayers(player)), pendingMessages: ['`@No human fights left today!'] });
-  if (target.dead)
-    return res.json({ ...getTavernScreen(player, await townPlayers(player)), pendingMessages: [`\`7${target.handle} is already dead.`] });
 
-  const fullTarget = await getPlayer(target.id);
-  const { attackerWon, log } = resolvePvP(player, fullTarget);
-  await updatePlayer(player.id, { human_fights_left: player.human_fights_left - 1 });
+  // Wrap PvP in a transaction to prevent race conditions on both player rows
+  const client = await pool.connect();
+  let attackerWon, log, freshPlayer, fullTarget, msgs;
+  try {
+    await client.query('BEGIN');
 
-  const msgs = [...log.slice(-5)];
+    // Lock both rows (lower id first to avoid deadlocks)
+    const [idA, idB] = [player.id, target.id].sort((a, b) => a - b);
+    await client.query('SELECT id FROM players WHERE id = $1 FOR UPDATE', [idA]);
+    await client.query('SELECT id FROM players WHERE id = $1 FOR UPDATE', [idB]);
+
+    const { rows: [fp] } = await client.query('SELECT * FROM players WHERE id = $1', [player.id]);
+    const { rows: [ft] } = await client.query('SELECT * FROM players WHERE id = $1', [target.id]);
+    freshPlayer = fp;
+    fullTarget  = ft;
+
+    if (freshPlayer.human_fights_left <= 0) {
+      await client.query('ROLLBACK');
+      return res.json({ ...getTavernScreen(player, await townPlayers(player)), pendingMessages: ['`@No human fights left today!'] });
+    }
+    if (fullTarget.dead) {
+      await client.query('ROLLBACK');
+      return res.json({ ...getTavernScreen(player, await townPlayers(player)), pendingMessages: [`\`7${fullTarget.handle} is already dead.`] });
+    }
+
+    ({ attackerWon, log } = resolvePvP(freshPlayer, fullTarget));
+    msgs = [...log.slice(-5)];
+
+    await client.query('UPDATE players SET human_fights_left = $1 WHERE id = $2',
+      [freshPlayer.human_fights_left - 1, freshPlayer.id]);
+
+    if (attackerWon) {
+      const stolen = Math.floor(Number(fullTarget.gold) * 0.25);
+      const expGain = fullTarget.level * 100;
+      await client.query('UPDATE players SET kills = $1, gold = $2, exp = $3 WHERE id = $4',
+        [freshPlayer.kills + 1, Number(freshPlayer.gold) + stolen, Number(freshPlayer.exp) + expGain, freshPlayer.id]);
+      await client.query('UPDATE players SET dead = 1, gold = $1 WHERE id = $2',
+        [Math.max(0, Number(fullTarget.gold) - stolen), fullTarget.id]);
+      msgs.push(`\`$You defeated ${fullTarget.handle} and stole ${stolen.toLocaleString()} gold! +${expGain.toLocaleString()} exp.`);
+    } else {
+      const hpLost = Math.floor(freshPlayer.hit_points * 0.5);
+      await client.query('UPDATE players SET hit_points = $1 WHERE id = $2',
+        [Math.max(1, freshPlayer.hit_points - hpLost), freshPlayer.id]);
+      msgs.push(`\`@You were defeated! You lost ${hpLost} HP.`);
+    }
+
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  // Post-commit: news and response (using sanitised handles to avoid color code injection)
   if (attackerWon) {
-    const stolen = Math.floor(Number(fullTarget.gold) * 0.25);
-    const expGain = fullTarget.level * 100;
-    await updatePlayer(player.id, { kills: player.kills + 1, gold: Number(player.gold) + stolen, exp: Number(player.exp) + expGain });
-    await updatePlayer(target.id, { dead: 1, gold: Math.max(0, Number(fullTarget.gold) - stolen) });
-    await addNews(`\`@${player.handle}\`% defeated \`@${fullTarget.handle}\`% in the tavern and stole \`$${stolen.toLocaleString()}\`% gold!`);
-    msgs.push(`\`$You defeated ${fullTarget.handle} and stole ${stolen.toLocaleString()} gold! +${expGain.toLocaleString()} exp.`);
+    await addNews(`\`@${freshPlayer.handle}\`% defeated \`@${fullTarget.handle}\`% in the tavern and stole gold!`);
   } else {
-    const hpLost = Math.floor(player.hit_points * 0.5);
-    await updatePlayer(player.id, { hit_points: Math.max(1, player.hit_points - hpLost) });
-    await addNews(`\`@${player.handle}\`% was defeated by \`$${fullTarget.handle}\`% in the tavern!`);
-    msgs.push(`\`@You were defeated! You lost ${hpLost} HP.`);
+    await addNews(`\`@${freshPlayer.handle}\`% was defeated by \`$${fullTarget.handle}\`% in the tavern!`);
   }
 
   player = await getPlayer(player.id);
@@ -75,30 +114,36 @@ async function tavern_intimidate({ player, param, req, res, pendingMessages }) {
     return res.json({ ...getTavernScreen(player, await townPlayers(player)), pendingMessages: ['`@No human fights left today!'] });
 
   const others = await townPlayers(player);
-  const target = others[parseInt(param) - 1];
+  const targetIdx = parseInt(param) - 1;
+  const targetStub = Number.isInteger(targetIdx) && targetIdx >= 0 ? others[targetIdx] : undefined;
 
-  if (!target)
+  if (!targetStub)
     return res.json({ ...getTavernScreen(player, await townPlayers(player)), pendingMessages: ['`@Invalid target.'] });
-  if (target.dead)
-    return res.json({ ...getTavernScreen(player, await townPlayers(player)), pendingMessages: [`\`7${target.handle} is already dead.`] });
+  if (targetStub.dead)
+    return res.json({ ...getTavernScreen(player, await townPlayers(player)), pendingMessages: [`\`7${targetStub.handle} is already dead.`] });
+
+  // Fetch the full target record — getPlayersInTown does not include gold
+  const fullTarget = await getPlayer(targetStub.id);
+  if (!fullTarget || fullTarget.dead)
+    return res.json({ ...getTavernScreen(player, await townPlayers(player)), pendingMessages: [`\`7${targetStub.handle} is no longer available.`] });
 
   await updatePlayer(player.id, { human_fights_left: player.human_fights_left - 1 });
-  const successChance = Math.min(0.80, 0.40 + (player.strength - (target.strength || 15)) / 200);
+  const successChance = Math.min(0.80, 0.40 + (player.strength - (fullTarget.strength || 15)) / 200);
 
   if (Math.random() < successChance) {
-    const stolen = Math.floor(Number(target.gold) * 0.15);
+    const stolen = Math.floor(Number(fullTarget.gold) * 0.15);
     await updatePlayer(player.id, { gold: Number(player.gold) + stolen });
-    await updatePlayer(target.id, { gold: Math.max(0, Number(target.gold) - stolen) });
-    await addNews(`\`@${player.handle}\`% intimidated \`@${target.handle}\`% and seized \`$${stolen.toLocaleString()}\`% gold!`);
+    await updatePlayer(fullTarget.id, { gold: Math.max(0, Number(fullTarget.gold) - stolen) });
+    await addNews(`\`@${player.handle}\`% intimidated \`@${fullTarget.handle}\`% and seized \`$${stolen.toLocaleString()}\`% gold!`);
     player = await getPlayer(player.id);
     return res.json({ ...getTavernScreen(player, await townPlayers(player)), pendingMessages: [
-      `\`@You loom over ${target.handle} with a death stare.`,
+      `\`@You loom over ${fullTarget.handle} with a death stare.`,
       `\`@They hand over ${stolen.toLocaleString()} gold without a word.`,
     ]});
   }
 
   return res.json({ ...getTavernScreen(player, await townPlayers(player)), pendingMessages: [
-    `\`7${target.handle} meets your gaze and doesn't flinch.`,
+    `\`7${fullTarget.handle} meets your gaze and doesn't flinch.`,
     '`7Even a Dread Knight needs more than a stare to shake this one.',
   ]});
 }
@@ -124,7 +169,8 @@ async function tavern_drink_order({ player, param, req, res, pendingMessages }) 
     return res.json({ ...getTavernDrinkScreen(player), pendingMessages: [`\`@Not enough gold! A ${chosen.name} costs ${chosen.cost} gold.`] });
 
   const curStam = player.stamina ?? player.fights_left ?? 10;
-  const newStam = Math.min(10, curStam + chosen.stamina);
+  const stamMax = player.stamina_max || 10;
+  const newStam = Math.min(stamMax, curStam + chosen.stamina);
   const actualGain = newStam - curStam;
   await updatePlayer(player.id, { gold: Number(player.gold) - chosen.cost, stamina: newStam, drinks_today: drinksToday + 1 });
   player = await getPlayer(player.id);

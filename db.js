@@ -57,11 +57,54 @@ async function getPlayerByUsername(username) {
   return rows[0] || null;
 }
 
+// Whitelist of all valid player columns — prevents SQL injection via dynamic key names
+const PLAYER_COLUMNS = new Set([
+  'username', 'password_hash', 'handle', 'sex', 'class', 'hit_points', 'hit_max',
+  'strength', 'defense', 'charm', 'level', 'exp', 'gold', 'bank', 'gems',
+  'weapon_num', 'weapon_name', 'arm_num', 'arm_name', 'fights_left', 'human_fights_left',
+  'skill_points', 'skill_uses_left', 'stamina', 'stamina_max',
+  'dead', 'near_death', 'near_death_by', 'seen_master', 'seen_dragon',
+  'has_horse', 'married_to', 'kids', 'times_won', 'kills', 'lays',
+  'last_day', 'flirted_today', 'special_done_today', 'training_today', 'drinks_today',
+  'grove_healed_today', 'well_used_today', 'guide_hired', 'road_hint', 'herbalist_today',
+  'poisoned', 'banned', 'is_legend', 'rage_active',
+  'wounds', 'infection_type', 'infection_stage', 'infection_days',
+  'vampire_bites', 'is_vampire', 'vampire_feasted', 'bandages',
+  'retired_today', 'retired_town',
+  'current_town', 'travel_to', 'travel_segments_done', 'travel_segments_total',
+  'camping', 'captive', 'captive_location',
+  'quest_id', 'quest_step', 'quest_data',
+  'crier_message', 'crier_day', 'last_encounter_id', 'encounter_day',
+  'forge_weapon_upgraded', 'forge_armor_upgraded', 'antidote_owned',
+  'rep_knights', 'rep_guild', 'rep_druids', 'rep_necromancers', 'rep_merchants',
+  'setup_complete', 'last_seen',
+  'perks', 'perk_points',
+  'nemesis_id',
+  'alignment',
+  'named_weapon_id', 'named_armor_id', 'weapon_cursed', 'armor_cursed', 'blood_oath',
+  'ruins_visited', 'dungeon_clears',
+]);
+
 async function updatePlayer(id, fields) {
-  const keys = Object.keys(fields);
+  const keys = Object.keys(fields).filter(k => {
+    if (!PLAYER_COLUMNS.has(k)) {
+      console.error(`updatePlayer: rejected unknown column "${k}"`);
+      return false;
+    }
+    return true;
+  });
   if (!keys.length) return;
   const set = keys.map((k, i) => `${k} = $${i + 1}`).join(', ');
   await pool.query(`UPDATE players SET ${set} WHERE id = $${keys.length + 1}`, [...keys.map(k => fields[k]), id]);
+}
+
+// Atomically claim the new-day for a player; returns true if this call "wins" the race
+async function claimNewDay(playerId, today) {
+  const { rowCount } = await pool.query(
+    'UPDATE players SET last_day = $1 WHERE id = $2 AND last_day < $1',
+    [today, playerId]
+  );
+  return rowCount > 0;
 }
 
 async function createPlayer(username, passwordHash) {
@@ -188,8 +231,19 @@ async function createNamedEnemy(data) {
   return rows[0];
 }
 
+const NAMED_ENEMY_COLUMNS = new Set([
+  'template_name', 'given_name', 'level', 'template_index', 'strength', 'hp',
+  'gold', 'exp', 'kills', 'title', 'defeated', 'last_seen_at', 'reached_town',
+]);
+
 async function updateNamedEnemy(id, fields) {
-  const keys = Object.keys(fields);
+  const keys = Object.keys(fields).filter(k => {
+    if (!NAMED_ENEMY_COLUMNS.has(k)) {
+      console.error(`updateNamedEnemy: rejected unknown column "${k}"`);
+      return false;
+    }
+    return true;
+  });
   if (!keys.length) return;
   const set = keys.map((k, i) => `${k} = $${i + 1}`).join(', ');
   await pool.query(`UPDATE named_enemies SET ${set} WHERE id = $${keys.length + 1}`, [...keys.map(k => fields[k]), id]);
@@ -262,4 +316,4 @@ async function setWorldState(key, value) {
   );
 }
 
-module.exports = { pool, initDb, getPlayer, getPlayerByUsername, updatePlayer, createPlayer, getAllPlayers, getPlayersInTown, getRetiredPlayersInTown, getNearDeathPlayers, getCaptivePlayers, getRecentNews, addNews, getHallOfKings, addToHallOfKings, TODAY, getBannerOverride, setBanner, deleteBanner, getAllBanners, loadBanners, getActiveNamedEnemiesForLevel, createNamedEnemy, updateNamedEnemy, getNamedEnemy, getUndefeatedNamedEnemiesWithKills, getInvadingEnemies, getActiveWorldEvent, triggerWorldEvent, expireWorldEvents, getWorldState, setWorldState };
+module.exports = { pool, initDb, getPlayer, getPlayerByUsername, updatePlayer, claimNewDay, createPlayer, getAllPlayers, getPlayersInTown, getRetiredPlayersInTown, getNearDeathPlayers, getCaptivePlayers, getRecentNews, addNews, getHallOfKings, addToHallOfKings, TODAY, getBannerOverride, setBanner, deleteBanner, getAllBanners, loadBanners, getActiveNamedEnemiesForLevel, createNamedEnemy, updateNamedEnemy, getNamedEnemy, getUndefeatedNamedEnemiesWithKills, getInvadingEnemies, getActiveWorldEvent, triggerWorldEvent, expireWorldEvents, getWorldState, setWorldState };

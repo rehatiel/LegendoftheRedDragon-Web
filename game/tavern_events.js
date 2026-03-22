@@ -751,7 +751,7 @@ const RESOLVERS = {
     }
 
     // Pick a reachable connected town as the target
-    const { TOWNS } = require('../data');
+    const { TOWNS } = require('./data');
     const currentTown = TOWNS[player.current_town || 'dawnmark'] || TOWNS.dawnmark;
     const candidates = (currentTown.connections || []).filter(id => {
       const t = TOWNS[id];

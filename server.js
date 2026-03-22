@@ -11,13 +11,35 @@ const { runNewDay } = require('./game/newday');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Require a real SESSION_SECRET — refuse to start with the placeholder
+const SESSION_SECRET = process.env.SESSION_SECRET;
+if (!SESSION_SECRET || SESSION_SECRET.startsWith('change-me') || SESSION_SECRET === 'sot-change-me') {
+  console.error('FATAL: SESSION_SECRET must be set to a strong random value in .env');
+  process.exit(1);
+}
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 app.use((_req, res, next) => { res.removeHeader('Permissions-Policy'); next(); });
 
+// CSRF protection: reject cross-origin state-changing requests
+app.use((req, res, next) => {
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
+  const origin = req.headers.origin;
+  if (!origin) return next(); // same-origin requests typically omit Origin
+  try {
+    const originHost = new URL(origin).host;
+    const reqHost = req.headers.host;
+    if (originHost !== reqHost) return res.status(403).json({ error: 'Forbidden' });
+  } catch {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  next();
+});
+
 app.use(session({
   store: new pgSession({ pool, tableName: 'session', createTableIfMissing: true }),
-  secret: process.env.SESSION_SECRET || 'sot-change-me',
+  secret: SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
   cookie: {
@@ -77,7 +99,7 @@ async function runGlobalNewDay() {
       console.error(`New-day failed for player ${player.id}:`, err);
     }
   }
-  await addNews('`$A new day dawns over the Age of Tears.').catch(() => {});
+  await addNews('`$A new day dawns over the Age of Tears.').catch(err => console.error('Failed to add new-day news:', err));
   broadcast('new_day', { day: today });
   console.log(`New day processed for ${rows.length} player(s).`);
 }

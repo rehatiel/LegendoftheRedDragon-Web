@@ -1,5 +1,5 @@
 const express = require('express');
-const { getPlayer, updatePlayer, addNews, TODAY } = require('../db');
+const { getPlayer, updatePlayer, claimNewDay, addNews, TODAY } = require('../db');
 const { LEVEL_UP_GAINS, TOWNS, expForNextLevel } = require('../game/data');
 const { runNewDay, runWorldDay } = require('../game/newday');
 const {
@@ -94,6 +94,8 @@ router.post('/setup', ar(async (req, res) => {
     const cls = [1,2,3,4,5,6,7,8,9,10].includes(parseInt(req.body.classNum)) ? parseInt(req.body.classNum) : 1;
     if (name.length < 2 || name.length > 20)
       return res.status(400).json({ error: 'Name must be 2–20 characters.' });
+    if (name.includes('`'))
+      return res.status(400).json({ error: 'Name cannot contain backtick characters.' });
     const classHp  = { 1: 28, 2: 35, 3: 22, 4: 20, 5: 25, 6: 32, 7: 25, 8: 22, 9: 18, 10: 26 };
     const classStr = { 1: 20, 2: 16, 3: 17, 4: 22, 5: 17, 6: 17, 7: 18, 8: 19, 9: 23, 10: 18 };
     await updatePlayer(player.id, {
@@ -107,7 +109,7 @@ router.post('/setup', ar(async (req, res) => {
 
   if (action === 'setup_name') {
     const name = (param || '').trim();
-    if (name.length < 2 || name.length > 20) return res.json(getSetupScreen('name'));
+    if (name.length < 2 || name.length > 20 || name.includes('`')) return res.json(getSetupScreen('name'));
     await updatePlayer(player.id, { handle: name });
     return res.json(getSetupScreen('sex'));
   }
@@ -157,15 +159,19 @@ router.post('/action', ar(async (req, res) => {
   if (!player) return res.status(401).json({ error: 'Player not found.' });
   if (!player.setup_complete) return res.json(getSetupScreen('name'));
 
-  // New-day routine
+  // New-day routine — claimNewDay does an atomic UPDATE to prevent duplicate processing
   let pendingMessages = [];
-  if (player.last_day < TODAY()) {
-    // World-level daily tasks (event rotation, invasions) — runs once per day server-wide
-    runWorldDay().catch(e => console.error('runWorldDay error:', e));
-    const { updates, messages } = await runNewDay(player);
-    await updatePlayer(player.id, updates);
+  const today = TODAY();
+  if (player.last_day < today) {
+    const claimed = await claimNewDay(player.id, today);
+    if (claimed) {
+      // World-level daily tasks (event rotation, invasions) — runs once per day server-wide
+      runWorldDay().catch(e => console.error('runWorldDay error:', e));
+      const { updates, messages } = await runNewDay(player);
+      await updatePlayer(player.id, updates);
+      pendingMessages = messages;
+    }
     player = await getPlayer(player.id);
-    pendingMessages = messages;
   }
 
   // Refresh world event + invader caches (synchronously available in all screen builders)
@@ -179,11 +185,18 @@ router.post('/action', ar(async (req, res) => {
   // Heartbeat — keep last_seen current for "who's online" tracking
   updatePlayer(player.id, { last_seen: new Date().toISOString() }).catch(() => {});
 
-  const { action, param } = req.body;
+  const action = typeof req.body.action === 'string' ? req.body.action.slice(0, 64) : '';
+  const param  = req.body.param == null ? null : String(req.body.param).slice(0, 256);
   const NEAR_DEATH_ALLOWED = ['near_death_wait', 'near_death_accept', 'town', 'logout'];
   const CAPTIVE_ALLOWED    = ['captive_wait', 'captive_buy_freedom', 'captive_escape', 'logout'];
   const CAMPING_ALLOWED    = ['camp_wait', 'road_turn_back', 'road_encounter_fight', 'road_encounter_run', 'road_encounter_power', 'logout'];
   const ABDUCTION_ALLOWED  = ['abduction_fight', 'abduction_power', 'abduction_run', 'logout'];
+
+  // Dead players are sent to town (they'll get a "you are dead" message there);
+  // only logout and town navigation are allowed until reincarnation on the next day.
+  const DEAD_ALLOWED = ['town', 'near_death_wait', 'near_death_accept', 'logout'];
+  if (player.dead && !DEAD_ALLOWED.includes(action))
+    return res.json({ ...getTownScreen(player), pendingMessages: ['`@You are dead. Come back tomorrow.'] });
 
   if (player.near_death && !NEAR_DEATH_ALLOWED.includes(action))
     return res.json({ ...getNearDeathWaitingScreen(player), pendingMessages });
@@ -231,6 +244,12 @@ router.post('/action', ar(async (req, res) => {
       }
       await updatePlayer(player.id, updates);
       await addNews(`\`8${player.handle}\`8 succumbed to their wounds in the forest.`);
+      // Clear any stale forest/road session state from the run that killed them
+      req.session.combat = null;
+      req.session.forestDepth = null;
+      req.session.forestEvent = null;
+      req.session.rescueTarget = null;
+      req.session.dragonCombat = null;
       player = await getPlayer(player.id);
       return res.json({ ...getTownScreen(player), pendingMessages: msgs });
     }

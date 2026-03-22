@@ -1,4 +1,4 @@
-const { getPlayer, updatePlayer, addNews, addToHallOfKings, setWorldState, TODAY } = require('../../db');
+const { pool, getPlayer, updatePlayer, addNews, setWorldState, TODAY } = require('../../db');
 const { RED_DRAGON } = require('../data');
 const { resolveRound } = require('../combat');
 const { getTownScreen, getDragonScreen, renderBanner } = require('../engine');
@@ -24,8 +24,25 @@ async function dragon_fight({ action, player, req, res, pendingMessages }) {
 
   if (dr.currentHp <= 0) {
     req.session.dragonCombat = null;
-    await updatePlayer(player.id, { times_won: player.times_won + 1, seen_dragon: 5, is_legend: 1 });
-    await addToHallOfKings(player);
+    // Wrap win record and Hall of Kings entry in a single transaction
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        'UPDATE players SET times_won = $1, seen_dragon = 5, is_legend = 1 WHERE id = $2',
+        [player.times_won + 1, player.id]
+      );
+      await client.query(
+        'INSERT INTO hall_of_kings (handle, level, kills, class, times_won) VALUES ($1, $2, $3, $4, $5)',
+        [player.handle, player.level, player.kills, player.class, player.times_won + 1]
+      );
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
     await addNews(`\`$*** ${player.handle} has slain the Red Dragon and is crowned King! ***`);
     setWorldState('last_dragon_kill', Math.floor(Date.now() / 86400000)).catch(() => {});
     player = await getPlayer(player.id);
