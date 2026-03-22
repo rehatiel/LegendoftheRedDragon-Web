@@ -1,6 +1,6 @@
 // City social space handlers — one unique location per town
 const { getPlayer, updatePlayer, getAllPlayers, addNews } = require('../../db');
-const { getRandomMonster } = require('../data');
+const { getRandomMonster, NAMED_ITEMS } = require('../data');
 const {
   getTownScreen,
   getSocialVelmoraScreen, getSocialIronholdScreen, getSocialSilverkeepScreen,
@@ -265,6 +265,64 @@ async function social_duskveil_guide({ player, req, res, pendingMessages }) {
     '`8A silent figure in a grey cloak nods once.',
     '`8"I know the roads. I\'ll keep you off the dangerous stretches."',
     '`#Road encounter chance halved for your next journey.',
+  ]});
+}
+
+async function social_duskveil_market({ player, req, res, pendingMessages }) {
+  return res.json({ ...getSocialDuskveilScreen(player, 'market'), pendingMessages });
+}
+
+const CURSED_ITEM_PRICES = { blooddrinker: 50000, voidplate: 100000 };
+
+async function social_duskveil_buy_cursed_weapon({ player, param, req, res, pendingMessages }) {
+  const itemId = param;
+  const item = NAMED_ITEMS[itemId];
+  if (!item || item.type !== 'weapon' || !item.cursed)
+    return res.json({ ...getSocialDuskveilScreen(player, 'market'), pendingMessages: ['`@Unknown item.'] });
+  if (player.weapon_cursed || player.named_weapon_id)
+    return res.json({ ...getSocialDuskveilScreen(player, 'market'), pendingMessages: ['`@You already carry a cursed or named weapon.'] });
+
+  const price = CURSED_ITEM_PRICES[itemId] || 50000;
+  if (Number(player.gold) < price)
+    return res.json({ ...getSocialDuskveilScreen(player, 'market'), pendingMessages: [`\`@You need ${price.toLocaleString()} gold.`] });
+
+  await updatePlayer(player.id, {
+    gold: Number(player.gold) - price,
+    named_weapon_id: itemId,
+    weapon_cursed: true,
+    strength: player.strength + item.strength,
+  });
+  player = await getPlayer(player.id);
+  return res.json({ ...getSocialDuskveilScreen(player, 'market'), pendingMessages: [
+    `\`@The dealer slides \`!${item.name}\`@ across the table without a word.`,
+    `\`8"${item.lore}"`,
+    `\`@It is yours now. For better or worse.`,
+  ]});
+}
+
+async function social_duskveil_buy_cursed_armor({ player, param, req, res, pendingMessages }) {
+  const itemId = param;
+  const item = NAMED_ITEMS[itemId];
+  if (!item || item.type !== 'armor' || !item.cursed)
+    return res.json({ ...getSocialDuskveilScreen(player, 'market'), pendingMessages: ['`@Unknown item.'] });
+  if (player.armor_cursed || player.named_armor_id)
+    return res.json({ ...getSocialDuskveilScreen(player, 'market'), pendingMessages: ['`@You already carry a cursed or named armour.'] });
+
+  const price = CURSED_ITEM_PRICES[itemId] || 100000;
+  if (Number(player.gold) < price)
+    return res.json({ ...getSocialDuskveilScreen(player, 'market'), pendingMessages: [`\`@You need ${price.toLocaleString()} gold.`] });
+
+  await updatePlayer(player.id, {
+    gold: Number(player.gold) - price,
+    named_armor_id: itemId,
+    armor_cursed: true,
+    defense: player.defense + item.defense,
+  });
+  player = await getPlayer(player.id);
+  return res.json({ ...getSocialDuskveilScreen(player, 'market'), pendingMessages: [
+    `\`@The dealer lifts \`!${item.name}\`@ from beneath the table.`,
+    `\`8"${item.lore}"`,
+    `\`@You feel the cold of it through the cloth. You buy it anyway.`,
   ]});
 }
 
@@ -576,6 +634,7 @@ module.exports = {
   social_silverkeep, social_silverkeep_pray, social_silverkeep_donate, social_silverkeep_bless,
   social_thornreach, social_thornreach_commune, social_thornreach_herbs, social_thornreach_whisper,
   social_duskveil, social_duskveil_intel, social_duskveil_guide,
+  social_duskveil_market, social_duskveil_buy_cursed_weapon, social_duskveil_buy_cursed_armor,
   social_graveport, social_graveport_drink, social_graveport_gossip,
   social_stormwatch, social_stormwatch_study, social_stormwatch_sage, social_stormwatch_scroll,
   social_old_karth, social_old_karth_loot, social_old_karth_commune,

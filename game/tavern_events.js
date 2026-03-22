@@ -94,6 +94,18 @@ const NPC_ART = {
     ],
   },
 
+  worried_woman: {
+    color: 'white',
+    lines: [
+      "   ,--------,      ",
+      "  ( >_<  >_< )     ",
+      "   '---()---'      ",
+      "    |  [??]  |     ",
+      "    |  HELP  |     ",
+      "    '--------'     ",
+    ],
+  },
+
 };
 
 // ── Quick brawl resolution (3 rounds, no session state) ───────────────────────
@@ -257,6 +269,25 @@ const TAVERN_ENCOUNTERS = [
       { key: 'C', label: 'Give chase through the crowd', param: 'chase' },
       { key: 'S', label: 'Shout for the barkeep to stop them', param: 'shout' },
       { key: 'L', label: 'Let them go — not worth it', param: 'let_go' },
+    ],
+  },
+
+  // ── 8. The Missing Merchant ─────────────────────────────────────────────────
+  {
+    id: 'missing_merchant_rumour',
+    title: 'A Worried Woman',
+    weight: 6,
+    minLevel: 2,
+    art: NPC_ART.worried_woman,
+    intro: [
+      'A woman paces near the door, wringing her hands.',
+      'Hrok the barkeep shakes his head. "Her husband — merchant — went out on the road three days ago."',
+      '"Horse came back this morning," he adds quietly. "Rider didn\'t."',
+      'She grabs your arm before you can turn away. "Please. Someone has to go look."',
+    ],
+    choices: [
+      { key: 'A', label: 'Accept — you\'ll investigate', param: 'accept' },
+      { key: 'D', label: 'Decline — not your problem',  param: 'decline' },
     ],
   },
 
@@ -575,8 +606,8 @@ const RESOLVERS = {
     return res.json({ ...getTavernScreen(player, others), pendingMessages: [
       '"His name was Aldric," she says, voice steadying with something colder than grief.',
       '"He was hunting near the old creek. Something found him first."',
-      '`$You swear to avenge Aldric. Find the creature that killed him in the forest.',
-      '`$[QUEST STARTED: Widow\'s Revenge — slay a forest creature for bonus rewards]',
+      '`$You swear to avenge Aldric.',
+      '`$QUEST STARTED: The Widow\'s Revenge — slay a legendary named enemy in the forest.',
     ]});
   },
 
@@ -701,6 +732,49 @@ const RESOLVERS = {
     ]});
   },
 
+  // ── 8. The Missing Merchant ─────────────────────────────────────────────────
+  missing_merchant_rumour: async (player, param, req, res, pendingMessages) => {
+    const others = await (require('../db').getAllPlayers)();
+
+    if (param === 'decline') {
+      return res.json({ ...getTavernScreen(player, others), pendingMessages: [
+        '`7You shake your head. She stares after you as you walk away.',
+        '`8Some problems aren\'t yours to solve.',
+      ]});
+    }
+
+    if (player.quest_id && player.quest_id !== '') {
+      return res.json({ ...getTavernScreen(player, others), pendingMessages: [
+        '`7You already have pressing matters of your own.',
+        '`8She nods slowly. "Perhaps another time."',
+      ]});
+    }
+
+    // Pick a reachable connected town as the target
+    const { TOWNS } = require('../data');
+    const currentTown = TOWNS[player.current_town || 'dawnmark'] || TOWNS.dawnmark;
+    const candidates = (currentTown.connections || []).filter(id => {
+      const t = TOWNS[id];
+      return t && (!t.minLevel || player.level >= t.minLevel);
+    });
+    const targetTown = candidates.length > 0
+      ? candidates[Math.floor(Math.random() * candidates.length)]
+      : 'ironhold';
+    const targetName = TOWNS[targetTown]?.name || targetTown;
+
+    await updatePlayer(player.id, {
+      quest_id:   'missing_merchant',
+      quest_step: 1,
+      quest_data: JSON.stringify({ targetTown, originTown: player.current_town || 'dawnmark' }),
+    });
+    player = await getPlayer(player.id);
+    return res.json({ ...getTavernScreen(player, others), pendingMessages: [
+      '"The road to ' + targetName + '," she says. "That\'s the way he went."',
+      '`$You swear to look into it.',
+      '`$QUEST STARTED: The Missing Merchant — travel to ' + targetName + ' and investigate.',
+    ]});
+  },
+
 };
 
 // ── Weighted random selection ─────────────────────────────────────────────────
@@ -708,7 +782,9 @@ const RESOLVERS = {
 function pickEncounter(player) {
   const eligible = TAVERN_ENCOUNTERS.filter(e =>
     e.minLevel <= player.level &&
-    e.id !== player.last_encounter_id
+    e.id !== player.last_encounter_id &&
+    !(e.id === 'missing_merchant_rumour' && player.quest_id && player.quest_id !== '') &&
+    !(e.id === 'crying_widow' && player.quest_id && player.quest_id !== '')
   );
   if (!eligible.length) return null;
 

@@ -1,5 +1,6 @@
 // Daily reset routine for SoT
-const { addNews, getAllPlayers } = require('../db');
+const { addNews, getAllPlayers, getWorldState, setWorldState, getActiveWorldEvent, triggerWorldEvent, expireWorldEvents, getUndefeatedNamedEnemiesWithKills, updateNamedEnemy } = require('../db');
+const { getEventDef, pickNextEvent, EVENT_DURATION_DAYS } = require('./world_events');
 const { expForNextLevel, LEVEL_UP_GAINS, CLASS_NAMES } = require('./data');
 const { parseWounds, hasSerious, hasCritical, getLocationPenalties } = require('./wounds');
 const { getHostileFactions, adjustReps, FACTIONS } = require('./factions');
@@ -27,6 +28,8 @@ async function runNewDay(player, dryRun = false) {
   updates.herbalist_today   = 0;
   updates.retired_today     = 0;
   updates.retired_town      = '';
+  updates.ruins_visited     = '[]';
+  updates.dungeon_clears    = '[]';
 
   // Stamina: inn sleepers recover fully; everyone else recovers 60%
   const stamMax = player.stamina_max || 10;
@@ -91,6 +94,15 @@ async function runNewDay(player, dryRun = false) {
     const wounds = parseWounds(player);
     const hasGrievous = wounds.some(w => w.severity >= 4);
     let healPct = atInn ? (hasGrievous ? 0.15 : 0.30) : (hasGrievous ? 0 : 0.15);
+    // Apply active world event inn heal multiplier
+    if (atInn) {
+      const activeEv = await getActiveWorldEvent();
+      if (activeEv) {
+        const { getEventDef: getEvDef } = require('./world_events');
+        const evDef = getEvDef(activeEv.type);
+        if (evDef?.effects?.innHealMult) healPct *= evDef.effects.innHealMult;
+      }
+    }
     const healAmount = Math.floor(player.hit_max * healPct);
     if (healAmount > 0) {
       updates.hit_points = Math.min(player.hit_max, player.hit_points + healAmount);
@@ -269,6 +281,13 @@ async function runNewDay(player, dryRun = false) {
     Object.assign(updates, adjustReps(player, { necromancers: 15, knights: -20 }));
   }
 
+  // ── Voidplate soul drain ──────────────────────────────────────────────────
+  if (player.named_armor_id === 'voidplate' && player.armor_cursed) {
+    const curCharm = updates.charm !== undefined ? updates.charm : player.charm;
+    updates.charm = Math.max(0, curCharm - 1);
+    messages.push('\`#The Voidplate feeds on your soul while you sleep. \`@−1 Charm.');
+  }
+
   // ── Bank interest ─────────────────────────────────────────────────────────
   if (player.bank > 0) {
     const interest = Math.min(10000, Math.floor(player.bank * 0.05));
@@ -320,6 +339,8 @@ async function runNewDay(player, dryRun = false) {
   return { updates, messages };
 }
 
+const PERK_LEVELS = new Set([3, 6, 9, 12]);
+
 function checkLevelUp(player) {
   if (player.level >= 12) return null;
   const nextExp = expForNextLevel(player.level);
@@ -331,12 +352,14 @@ function checkLevelUp(player) {
   const strGain       = gains.strength + newLevel;
   const newHpMax      = player.hit_max + hpGain;
   const newSkillPoints = (player.skill_points || 0) + 1;
+  const perkPoint     = PERK_LEVELS.has(newLevel);
 
   return {
     newLevel,
     hpGain,
     strGain,
     newSkillPoints,
+    perkPoint,
     updates: {
       level:          newLevel,
       hit_max:        newHpMax,
@@ -344,8 +367,56 @@ function checkLevelUp(player) {
       strength:       player.strength + strGain,
       skill_points:   newSkillPoints,
       skill_uses_left: Math.min(newSkillPoints, 10),
+      ...(perkPoint ? { perk_points: (player.perk_points || 0) + 1 } : {}),
     },
   };
 }
 
-module.exports = { runNewDay, checkLevelUp };
+// ── World day: server-wide events, invasions, dragon spread ───────────────────
+// Called once per day (guarded by last_world_day in world_state)
+async function runWorldDay() {
+  const { TOWNS } = require('./data');
+  const today = Math.floor(Date.now() / 86400000);
+  const lastWorldDay = parseInt(await getWorldState('last_world_day') || '0');
+  if (lastWorldDay >= today) return; // already ran today
+
+  await setWorldState('last_world_day', today);
+
+  // 1. Expire old events and announce their end
+  const expired = await expireWorldEvents();
+  for (const type of expired) {
+    const def = getEventDef(type);
+    if (def) await addNews(def.newsExpiry);
+  }
+
+  // 2. Start a new event if none is active
+  const active = await getActiveWorldEvent();
+  if (!active) {
+    const nextType = pickNextEvent(expired[0] || null);
+    await triggerWorldEvent(nextType, EVENT_DURATION_DAYS);
+    const def = getEventDef(nextType);
+    if (def) await addNews(def.newsIntro);
+  }
+
+  // 3. Named enemy invasions: enemies with 3+ kills reach a random town
+  const townIds = Object.keys(TOWNS);
+  const candidates = await getUndefeatedNamedEnemiesWithKills(3);
+  for (const enemy of candidates) {
+    const targetTown = townIds[Math.floor(Math.random() * townIds.length)];
+    await updateNamedEnemy(enemy.id, { reached_town: targetTown });
+    const townName = TOWNS[targetTown]?.name || targetTown;
+    await addNews(`\`@${enemy.given_name}${enemy.title ? ', ' + enemy.title : ''}\`% has been sighted near \`$${townName}\`%! The town is in danger!`);
+  }
+
+  // 4. Dragon spread: post escalating warnings if unchallenged
+  const lastKillDay = parseInt(await getWorldState('last_dragon_kill') || '0');
+  if (lastKillDay > 0) {
+    const daysSince = today - lastKillDay;
+    if (daysSince === 7)
+      await addNews('`@The Red Dragon has not been challenged in a week. It grows bolder. Its shadow darkens the frontier.');
+    else if (daysSince > 7 && daysSince % 3 === 0)
+      await addNews('`@The Red Dragon continues to roam unchallenged. The frontier trembles.');
+  }
+}
+
+module.exports = { runNewDay, checkLevelUp, runWorldDay };

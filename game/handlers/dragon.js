@@ -1,4 +1,4 @@
-const { getPlayer, updatePlayer, addNews, addToHallOfKings } = require('../../db');
+const { getPlayer, updatePlayer, addNews, addToHallOfKings, setWorldState, TODAY } = require('../../db');
 const { RED_DRAGON } = require('../data');
 const { resolveRound } = require('../combat');
 const { getTownScreen, getDragonScreen, renderBanner } = require('../engine');
@@ -27,6 +27,7 @@ async function dragon_fight({ action, player, req, res, pendingMessages }) {
     await updatePlayer(player.id, { times_won: player.times_won + 1, seen_dragon: 5, is_legend: 1 });
     await addToHallOfKings(player);
     await addNews(`\`$*** ${player.handle} has slain the Red Dragon and is crowned King! ***`);
+    setWorldState('last_dragon_kill', Math.floor(Date.now() / 86400000)).catch(() => {});
     player = await getPlayer(player.id);
     return res.json({
       screen: 'dragon_win', title: 'Victory!',

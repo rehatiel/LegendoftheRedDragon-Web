@@ -1,6 +1,6 @@
 const { getPlayer, updatePlayer } = require('../../db');
 const { TOWNS } = require('../data');
-const { getWorldMapScreen, getTownScreen } = require('../engine');
+const { getWorldMapScreen, getTownScreen, getMissingMerchantScreen } = require('../engine');
 
 const TRAVEL_COST = 50;
 
@@ -38,10 +38,23 @@ async function travel({ player, param, req, res, pendingMessages }) {
   });
   player = await getPlayer(player.id);
 
-  return res.json({ ...getTownScreen(player), pendingMessages: [
+  const arrivalMsgs = [
     `\`6You spend ${TRAVEL_COST} gold on the road and arrive in \`$${dest.name}\`6.`,
     `\`8${dest.tagline}`,
-  ]});
+  ];
+
+  // Missing Merchant quest: intercept arrival at target town
+  if (player.quest_id === 'missing_merchant' && player.quest_step === 1) {
+    let qdata = {};
+    try { qdata = JSON.parse(player.quest_data || '{}'); } catch { /* ignore */ }
+    if (qdata.targetTown === param) {
+      await updatePlayer(player.id, { quest_step: 2 });
+      player = await getPlayer(player.id);
+      return res.json({ ...getMissingMerchantScreen(player, dest), pendingMessages: arrivalMsgs });
+    }
+  }
+
+  return res.json({ ...getTownScreen(player), pendingMessages: arrivalMsgs });
 }
 
 module.exports = { world_map, travel };

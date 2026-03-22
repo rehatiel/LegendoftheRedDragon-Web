@@ -1,6 +1,7 @@
 // Screen generation engine for SoT
-const { WEAPONS, ARMORS, expForNextLevel, CLASS_NAMES, CLASS_POWER_MOVES, MONSTER_TEMPLATES, getWeaponByNum, getArmorByNum, TOWNS, SOCIAL_SPACES, SHOP_OWNERS } = require('./data');
+const { WEAPONS, ARMORS, expForNextLevel, CLASS_NAMES, CLASS_POWER_MOVES, MONSTER_TEMPLATES, getWeaponByNum, getArmorByNum, TOWNS, SOCIAL_SPACES, SHOP_OWNERS, getPerksForClass, PERKS, NAMED_ITEMS } = require('./data');
 const { MONSTER_ART } = require('./forest_events');
+const { getQuestName, getQuestStepText, getAlignmentLabel } = require('./quests');
 const { getBannerOverride } = require('../db');
 
 const c = {
@@ -31,6 +32,13 @@ const bg = {
   brown:  '`g',   // b6 — #AA5500
   lgray:  '`h',   // b7 — #AAAAAA
 };
+
+// ── World event + invader cache (updated once per action in routes/game.js) ───
+let _worldEventCache = null;   // { id, name, tagline, effects, combatNote, ... }
+let _invaderCache    = {};     // { townId: [ namedEnemyRow, ... ] }
+
+function setWorldEventCache(eventDef) { _worldEventCache = eventDef || null; }
+function setInvaderCache(map)         { _invaderCache    = map || {}; }
 
 function fmt(n) { return Number(n).toLocaleString(); }
 function pad(s, w) { return String(s).padEnd(w); }
@@ -673,15 +681,33 @@ function getTownScreen(player) {
   const { FACTIONS } = require('./factions');
   const factionInTown = Object.values(FACTIONS).find(f => f.homeTown === town.id) || null;
 
+  const { WILDERNESS_ZONES } = require('./wilderness');
+  const { RUINS } = require('./ruins');
+  const zone = WILDERNESS_ZONES[town.id] || null;
+  const ruin = RUINS[town.id] || null;
+  const visitedRuins = JSON.parse(player.ruins_visited || '[]');
+  const ruinVisited = ruin ? visitedRuins.includes(ruin.id) : false;
+
+  const worldEvent = _worldEventCache;
+  const invaders   = _invaderCache[town.id] || [];
+
   const lines = [
     ...renderBanner(town.id),
     ...getStatusBar(player),
+    worldEvent ? `${c.red}  ⚡ WORLD EVENT: ${c.yellow}${worldEvent.name}  ${c.dgray}${worldEvent.tagline}` : '',
+    worldEvent?.effects?.combatNote ? `${c.dgray}  ${worldEvent.effects.combatNote}` : '',
+    invaders.length > 0
+      ? `${c.red}  ☠ WARNING: ${c.yellow}${invaders[0].given_name}${invaders[0].title ? ', ' + invaders[0].title : ''}${c.red} threatens this town! Fight your way in!`
+      : '',
     '',
     `${c.gray}  ${c.dgray}⚑ ${c.yellow}${town.name}  ${c.dgray}— ${c.gray}${town.tagline}`,
     '',
     `${c.yellow}  What would you like to do?`,
     '',
-    `${c.yellow}  [F]${c.white} Enter the Forest${stam === 0 ? c.dgray + '  (exhausted — rest at the tavern)' : c.green + '  (' + stam + ' stamina remaining)'}`,
+    zone
+      ? `${c.yellow}  [F]${c.white} Explore ${zone.name}${stam === 0 ? c.dgray + '  (exhausted)' : c.green + '  (' + stam + ' stamina remaining)'}`
+      : `${c.yellow}  [F]${c.white} Enter the Forest${stam === 0 ? c.dgray + '  (exhausted — rest at the tavern)' : c.green + '  (' + stam + ' stamina remaining)'}`,
+    ruin ? `${c.cyan}  [U]${c.white} Explore the Ruins${c.dgray}  (${ruin.name})${ruinVisited ? c.dgray + ' — visited today' : ''}` : '',
     `${c.yellow}  [X]${c.white} Training Grounds${trainLeft > 0 ? c.dgreen + '  (' + trainLeft + ' session' + (trainLeft !== 1 ? 's' : '') + ' left)' : c.dgray + '  (fully trained today)'}`,
     `${c.yellow}  [W]${c.white} Visit the Weapon Shop`,
     `${c.yellow}  [A]${c.white} Visit the Armour Shop`,
@@ -696,15 +722,18 @@ function getTownScreen(player) {
     `${c.yellow}  [P]${c.white} View Other Players`,
     `${c.yellow}  [C]${c.white} View Your Character`,
     player.level >= 12 ? `${c.red}  [D]${c.white} Challenge the Red Dragon` : '',
+    (player.perk_points || 0) > 0 ? `${c.magenta}  [E]${c.white} Choose a Perk ${c.magenta}✦ (${player.perk_points} point${player.perk_points > 1 ? 's' : ''} available!)` : '',
     `${c.yellow}  [Y]${c.white} Town Crier${c.dgray} (post an announcement)`,
     `${c.cyan}  [V]${c.white} World Map / Travel${c.dgray} (${town.connections.length} route${town.connections.length !== 1 ? 's' : ''} from here)`,
     factionInTown ? `${c.brown}  [K]${c.white} ${factionInTown.houseName}${c.dgray} (${factionInTown.shortName})` : '',
+    invaders.length > 0 ? `${c.red}  [Z]${c.white} Fight ${invaders[0].given_name}${invaders[0].title ? ', ' + invaders[0].title : ''} at the gate` : '',
     `${c.dgray}  [L]${c.gray} Logout`,
     '',
   ].filter(l => l !== undefined && l !== '');
 
   const choices = [
-    { key: 'F', label: 'Enter the Forest', action: 'forest', disabled: stam === 0 },
+    zone ? { key: 'F', label: `Explore ${zone.name}`, action: 'wilderness', disabled: stam === 0 }
+         : { key: 'F', label: 'Enter the Forest', action: 'forest', disabled: stam === 0 },
     { key: 'X', label: 'Training Grounds', action: 'training' },
     { key: 'W', label: 'Weapon Shop', action: 'weapon_shop' },
     { key: 'A', label: 'Armour Shop', action: 'armor_shop' },
@@ -722,8 +751,12 @@ function getTownScreen(player) {
     { key: 'V', label: 'World Map / Travel', action: 'world_map' },
     { key: 'L', label: 'Logout', action: 'logout' },
   ];
+  if ((player.perk_points || 0) > 0) choices.splice(choices.findIndex(ch => ch.key === 'Y'), 0, { key: 'E', label: 'Choose a Perk', action: 'perk_select' });
   if (factionInTown) choices.splice(choices.findIndex(ch => ch.key === 'L'), 0, { key: 'K', label: factionInTown.houseName, action: 'faction_house' });
   if (player.level >= 12) choices.splice(choices.findIndex(ch => ch.key === 'Y'), 0, { key: 'D', label: 'Challenge Dragon', action: 'dragon' });
+  if (ruin) choices.splice(1, 0, { key: 'U', label: ruin.name, action: 'ruins', disabled: ruinVisited });
+  if (invaders.length > 0) choices.splice(choices.findIndex(ch => ch.key === 'L'), 0,
+    { key: 'Z', label: `Fight ${invaders[0].given_name}`, action: 'town_invader_fight' });
 
   return { screen: 'town', ...buildScreen(town.name, lines, choices) };
 }
@@ -738,13 +771,14 @@ function getForestEncounterScreen(player, monster, depth = 0) {
     ? monster.meet
     : `A ${monster.name} emerges from the darkness!`;
 
-  const art = getMonsterArt(monster.name);
+  const art = getMonsterArt(monster.artName || monster.name);
   const artColor = c[art.color] || c.red;
 
   const lines = [
     ...renderBanner('forest'),
     depth > 0 ? `${c.red}  ⚠ Forest Depth: ${depth}  — monsters grow stronger here` : undefined,
     player.rage_active ? `${c.red}  ⚡ RAGE ACTIVE — next strike will be devastating!` : undefined,
+    monster.isNamed ? `${c.yellow}  ★ LEGENDARY ENEMY ★` : undefined,
     '',
     `${c.red}  ${meetText}`,
     `${c.white}  It wields a ${c.yellow}${monster.weapon}${c.white}!`,
@@ -757,7 +791,7 @@ function getForestEncounterScreen(player, monster, depth = 0) {
 
   lines.push(
     divider('─', 50),
-    `${c.red}  ☠  ${monster.name}`,
+    `${c.red}  ☠  ${monster.displayName || monster.name}`,
     `${c.gray}  HP  ${mBar}  ${hpColor(monster.currentHp, monster.maxHp)}${fmt(monster.currentHp)}${c.gray}/${c.white}${fmt(monster.maxHp)}`,
     `${c.gray}  STR ${c.red}${fmt(monster.strength)}`,
     divider('─', 50),
@@ -1547,7 +1581,12 @@ function getCharacterScreen(player) {
     '',
     `${c.yellow}  ── Equipment ────────────────────────`,
     `${c.gray}  Weapon:  ${c.white}${player.weapon_name}`,
+    player.named_weapon_id ? `${c.cyan}  ★ ${NAMED_ITEMS[player.named_weapon_id]?.name || player.named_weapon_id}${player.weapon_cursed ? c.red + ' [CURSED]' : ''}` : '',
+    player.named_weapon_id ? `${c.dgray}    ${NAMED_ITEMS[player.named_weapon_id]?.effectDesc || ''}` : '',
     `${c.gray}  Armour:  ${c.white}${player.arm_name}`,
+    player.named_armor_id ? `${c.cyan}  ★ ${NAMED_ITEMS[player.named_armor_id]?.name || player.named_armor_id}${player.armor_cursed ? c.red + ' [CURSED]' : ''}` : '',
+    player.named_armor_id ? `${c.dgray}    ${NAMED_ITEMS[player.named_armor_id]?.effectDesc || ''}` : '',
+    player.blood_oath ? `${c.red}  ⚡ Blood Oath: active (−20 max HP, +40 Strength)` : '',
     '',
     `${c.yellow}  ── Resources ────────────────────────`,
     `${c.gray}  Gold:   ${c.yellow}${fmt(player.gold)}`,
@@ -1560,12 +1599,29 @@ function getCharacterScreen(player) {
     `${c.gray}  Skill Pts:   ${c.white}${player.skill_points}`,
     `${c.gray}  Uses Today:  ${c.white}${player.skill_uses_left}`,
     '',
+    (() => {
+      const ownedPerks = (() => { try { return JSON.parse(player.perks || '[]'); } catch { return []; } })();
+      if (ownedPerks.length === 0 && !(player.perk_points || 0)) return '';
+      const lines2 = [`${c.yellow}  ── Perks ────────────────────────────`];
+      if ((player.perk_points || 0) > 0) lines2.push(`${c.magenta}  ✦ ${player.perk_points} perk point${player.perk_points > 1 ? 's' : ''} unspent! Press [E] in town.`);
+      ownedPerks.forEach(id => {
+        const p = PERKS[id];
+        if (p) lines2.push(`${c.cyan}  • ${p.name}: ${c.gray}${p.desc}`);
+      });
+      return lines2.join('\n');
+    })(),
+    '',
     `${c.yellow}  ── Records ──────────────────────────`,
     `${c.gray}  PvP Kills:   ${c.red}${player.kills}`,
     `${c.gray}  Times Won:   ${c.yellow}${player.times_won}`,
     player.is_legend ? `${c.yellow}  Legend Status: ${c.red}★ LEGENDARY WARRIOR ★` : '',
     (player.poisoned || 0) > 0 ? `${c.dgreen}  ☠ Status: POISONED (${player.poisoned} rounds remaining)` : '',
-    player.quest_id ? `${c.cyan}  Quest Active: ${player.quest_id.replace(/_/g, ' ')}` : '',
+    (() => {
+      const al = getAlignmentLabel(player.alignment || 0);
+      return `${c.gray}  Alignment:   ${c[al.color] || c.white}${al.text}${c.gray} (${player.alignment || 0})`;
+    })(),
+    player.quest_id ? `${c.cyan}  Quest Active: ${getQuestName(player.quest_id)}` : '',
+    player.quest_id ? `${c.gray}  ↳ ${getQuestStepText(player.quest_id, player.quest_step, player.quest_data)}` : '',
     '',
     ...getFactionStandingsLines(player),
     '',
@@ -1667,7 +1723,7 @@ function getDragonScreen(player) {
   ]);
 }
 
-function getLevelUpScreen(player, newLevel, hpGain, strGain) {
+function getLevelUpScreen(player, newLevel, hpGain, strGain, perkPoint = false) {
   const cls = CLASS_NAMES[player.class];
   const lines = [
     ...renderBanner('master'),
@@ -1681,11 +1737,50 @@ function getLevelUpScreen(player, newLevel, hpGain, strGain) {
     `${c.cyan}  +1 Skill Point (${player.skill_points + 1} total)`,
     '',
     newLevel === 12 ? `${c.red}  You are now powerful enough to challenge the Red Dragon!` : '',
+    perkPoint ? `${c.magenta}  ✦ A new perk is available — choose your power!` : '',
     '',
+    perkPoint ? `${c.yellow}  [P]${c.white} Choose a Perk` : '',
     `${c.yellow}  [T]${c.white} Return to Town`,
-  ].filter(l => l !== undefined);
+  ].filter(l => l !== undefined && l !== '');
 
-  return buildScreen('Level Up!', lines, [{ key: 'T', label: 'Return to Town', action: 'town' }]);
+  const choices = [];
+  if (perkPoint) choices.push({ key: 'P', label: 'Choose a Perk', action: 'perk_select' });
+  choices.push({ key: 'T', label: 'Return to Town', action: 'town' });
+
+  return buildScreen('Level Up!', lines, choices);
+}
+
+// ── Perk Selection Screen ─────────────────────────────────────────────────────
+function getPerkSelectionScreen(player) {
+  const classPerks = getPerksForClass(player.class);
+  const existingPerks = (() => { try { return JSON.parse(player.perks || '[]'); } catch { return []; } })();
+
+  const keys = ['A', 'B', 'C'];
+  const lines = [
+    ...renderBanner('master'),
+    `${c.yellow}  ── Choose Your Perk ──`,
+    '',
+    `${c.white}  You have earned a perk point. Choose one ability to master:`,
+    `${c.dgray}  (Already chosen perks are marked and cannot be selected again)`,
+    '',
+  ];
+
+  const choices = [];
+  classPerks.forEach((perk, i) => {
+    const key = keys[i];
+    const owned = existingPerks.includes(perk.id);
+    if (owned) {
+      lines.push(`${c.dgray}  [${key}] ${perk.name} — ${c.dgray}${perk.desc} ${c.dgray}(already mastered)`);
+    } else {
+      lines.push(`${c.yellow}  [${key}]${c.white} ${c.cyan}${perk.name}${c.white} — ${perk.desc}`);
+      choices.push({ key, label: perk.name, action: 'choose_perk', param: perk.id, disabled: false });
+    }
+  });
+
+  lines.push('');
+  lines.push(`${c.dgray}  Perk points remaining: ${player.perk_points || 0}`);
+
+  return buildScreen('Choose a Perk', lines, choices);
 }
 
 // ── Forest Event Screen ───────────────────────────────────────────────────────
@@ -2039,7 +2134,37 @@ function getSocialThornreachScreen(player) {
   ]);
 }
 
-function getSocialDuskveilScreen(player) {
+function getSocialDuskveilScreen(player, mode) {
+  if (mode === 'market') {
+    const blooddrinker = NAMED_ITEMS.blooddrinker;
+    const voidplate    = NAMED_ITEMS.voidplate;
+    const hasCursedWeapon = player.weapon_cursed || !!player.named_weapon_id;
+    const hasCursedArmor  = player.armor_cursed  || !!player.named_armor_id;
+    const mlines = [
+      ...renderBanner('duskveil'),
+      `${c.red}  The Back Room`,
+      `${c.dgray}  Items here are not sold. They are transferred. There is a difference.`,
+      `${c.dgray}  Once you own them, they own you back.`,
+      '',
+      `${c.yellow}  [B]${c.white} ${blooddrinker.name} ${c.dgray}(50,000g)`,
+      `${c.dgray}      Effect: ${blooddrinker.effectDesc}`,
+      `${c.dgray}      "${blooddrinker.lore}"`,
+      hasCursedWeapon ? `${c.red}      [Slot occupied]` : '',
+      '',
+      `${c.yellow}  [V]${c.white} ${voidplate.name} ${c.dgray}(100,000g)`,
+      `${c.dgray}      Effect: ${voidplate.effectDesc}`,
+      `${c.dgray}      "${voidplate.lore}"`,
+      hasCursedArmor ? `${c.red}      [Slot occupied]` : '',
+      '',
+      `${c.yellow}  [L]${c.white} Leave`,
+    ];
+    return buildScreen('The Back Room', mlines, [
+      { key: 'B', label: `${blooddrinker.name} (50,000g)`, action: 'social_duskveil_buy_cursed_weapon', param: 'blooddrinker', disabled: hasCursedWeapon || Number(player.gold) < 50000 },
+      { key: 'V', label: `${voidplate.name} (100,000g)`,  action: 'social_duskveil_buy_cursed_armor',  param: 'voidplate',    disabled: hasCursedArmor  || Number(player.gold) < 100000 },
+      { key: 'L', label: 'Leave', action: 'social_duskveil' },
+    ]);
+  }
+
   const lines = [
     ...renderBanner('duskveil'),
     `${c.magenta}  The Shadow Market`,
@@ -2048,11 +2173,13 @@ function getSocialDuskveilScreen(player) {
     '',
     `${c.yellow}  [I]${c.white} Buy road intelligence ${c.dgray}(150 gold — know what lies ahead)`,
     `${c.yellow}  [G]${c.white} Hire a guide ${c.dgray}(200 gold — halves road encounter chance)`,
+    `${c.yellow}  [M]${c.white} The back room ${c.dgray}(cursed items — be warned)`,
     `${c.yellow}  [L]${c.white} Leave`,
   ];
   return buildScreen('The Shadow Market', lines, [
     { key: 'I', label: 'Buy road intelligence (150g)', action: 'social_duskveil_intel', disabled: Number(player.gold) < 150 },
     { key: 'G', label: 'Hire a guide (200g)', action: 'social_duskveil_guide', disabled: Number(player.gold) < 200 },
+    { key: 'M', label: 'The back room', action: 'social_duskveil_market' },
     { key: 'L', label: 'Leave', action: 'town' },
   ]);
 }
@@ -2478,6 +2605,133 @@ function getFactionHouseScreen(player, factionId) {
   return buildScreen(faction.houseName, lines, choices);
 }
 
+// ── Missing Merchant Quest Screen ─────────────────────────────────────────────
+function getMissingMerchantScreen(player, town) {
+  const townName = town?.name || 'this town';
+  const lines = [
+    '',
+    `${c.yellow}  ── The Missing Merchant ──`,
+    '',
+    `${c.white}  You ask around ${townName}. Word spreads quickly in a small town.`,
+    `${c.dgray}  A stablehand saw the merchant's wagon heading north three days ago.`,
+    `${c.dgray}  "Horse came back alone this morning," she says. "Wagon didn't."`,
+    '',
+    `${c.white}  You follow the trail into the tree line. An hour in, you find the wagon — overturned.`,
+    `${c.dgray}  A low groan from beneath the wreckage. He's alive, but barely.`,
+    `${c.dgray}  His purse is still there. Full of coin. So is a crate of sealed goods.`,
+    '',
+    `${c.cyan}  What do you do?`,
+    '',
+    `${c.white}  [H]${c.white} Help him — get him back to town`,
+    `${c.white}  [T]${c.white} Take his gold and leave`,
+  ];
+  return buildScreen('The Missing Merchant', lines, [
+    { key: 'H', label: 'Help the merchant', action: 'merchant_help' },
+    { key: 'T', label: 'Take the gold',     action: 'merchant_loot' },
+  ]);
+}
+
+// ── Wilderness victory screen ─────────────────────────────────────────────────
+function getWildernessVictoryScreen(player, monster, log, round, history, zone) {
+  const lines = [...renderBanner('forest')];
+  if (history.length > 0) {
+    history.slice(-6).forEach(entry => lines.push(`${c.dgray}  ${entry.text}`));
+    lines.push('');
+  }
+  log.forEach(entry => lines.push(`  ${entry.text}`));
+  lines.push(
+    '',
+    `${c.yellow}  ╔══════════════════════════════════╗`,
+    `${c.yellow}  ║        *** VICTORY! ***          ║`,
+    `${c.yellow}  ╚══════════════════════════════════╝`,
+    `${c.white}  The ${monster.name} is defeated!`,
+  );
+  if (monster.death) lines.push(`${c.green}  ${monster.death}`);
+  lines.push(
+    '',
+    `${c.gray}  You gain ${c.yellow}${fmt(monster.gold)}${c.gray} gold and ${c.cyan}${fmt(monster.exp)}${c.gray} experience!`,
+    '',
+  );
+
+  let dungeonName = 'the Dungeon';
+  if (zone.hasDungeon && zone.dungeonId) {
+    const { getDungeon } = require('./dungeons');
+    const d = getDungeon(zone.dungeonId);
+    if (d) dungeonName = d.name;
+  }
+
+  const stam = player.stamina ?? player.fights_left ?? 10;
+  lines.push(`${c.yellow}  [F]${c.white} Fight Again in ${zone.name}${stam === 0 ? c.dgray + '  (exhausted)' : ''}`);
+  if (zone.hasDungeon) lines.push(`${c.red}  [D]${c.white} Enter ${dungeonName}`);
+  lines.push(`${c.gray}  [T]${c.white} Return to Town`);
+
+  const choices = [
+    { key: 'F', label: 'Fight Again', action: 'wilderness_continue', disabled: stam === 0 },
+    { key: 'T', label: 'Return to Town', action: 'town' },
+  ];
+  if (zone.hasDungeon) choices.splice(1, 0, { key: 'D', label: `Enter ${dungeonName}`, action: 'dungeon_enter' });
+  return buildScreen(`Victory — ${zone.name}`, lines, choices);
+}
+
+// ── Dungeon screens ───────────────────────────────────────────────────────────
+function getDungeonEventScreen(player, dungeon, room, roomNum, totalRooms) {
+  const lines = [
+    ...renderBanner('dungeon'),
+    ...getStatusBar(player),
+    '',
+    `${c.yellow}  ─── ${dungeon.name} ───`,
+    `${c.dgray}  Room ${roomNum} of ${totalRooms}`,
+    '',
+    ...room.intro.map(l => `${c.white}  ${l}`),
+    '',
+    ...room.choices.map(ch => `${c.yellow}  [${ch.key}]${c.white} ${ch.label}`),
+    '',
+    `${c.red}  [X]${c.white} Retreat from the dungeon`,
+  ];
+  const choices = [
+    ...room.choices.map(ch => ({ key: ch.key, label: ch.label, action: 'dungeon_event', param: ch.param })),
+    { key: 'X', label: 'Retreat', action: 'dungeon_retreat' },
+  ];
+  return buildScreen(dungeon.name, lines, choices);
+}
+
+function getDungeonCompleteScreen(player, dungeon) {
+  const lines = [
+    ...renderBanner('dungeon'),
+    ...getStatusBar(player),
+    '',
+    `${c.yellow}  ╔══════════════════════════════════════╗`,
+    `${c.yellow}  ║      *** DUNGEON CLEARED! ***        ║`,
+    `${c.yellow}  ╚══════════════════════════════════════╝`,
+    dungeon.clearTitle ? `${c.cyan}  Title earned: ${c.yellow}${dungeon.clearTitle}` : '',
+    '',
+    `${c.yellow}  [T]${c.white} Return to Town`,
+  ].filter(l => l !== '');
+  return buildScreen(`${dungeon.name} — Cleared!`, lines, [
+    { key: 'T', label: 'Return to Town', action: 'town' },
+  ]);
+}
+
+// ── Ruins screen ──────────────────────────────────────────────────────────────
+function getRuinsScreen(player, ruin) {
+  const lines = [
+    ...renderBanner('ruins'),
+    ...getStatusBar(player),
+    '',
+    `${c.yellow}  ─── ${ruin.name} ───`,
+    `${c.dgray}  ${ruin.tagline}`,
+    '',
+    ...ruin.intro.map(l => `${c.white}  ${l}`),
+    '',
+    ...ruin.choices.map(ch => `${c.yellow}  [${ch.key}]${c.white} ${ch.label}`),
+    '',
+  ];
+  const choices = ruin.choices.map(ch => ({
+    key: ch.key, label: ch.label, action: 'ruins_choice', param: ch.param,
+  }));
+  return buildScreen(ruin.name, lines, choices);
+}
+
 module.exports = {
   getTownScreen, getForestEncounterScreen, getForestCombatScreen,
   getWeaponShopScreen, getArmorShopScreen, getInnScreen, getBankScreen,
@@ -2491,11 +2745,16 @@ module.exports = {
   getSocialStormwatchScreen, getSocialOldKarthScreen, getSocialAshenfallScreen,
   getSocialBrackenHollowScreen, getSocialMirefenScreen, getSocialFrostmereScreen,
   getNewsScreen, getCharacterScreen, getSetupScreen, getDragonScreen,
-  getLevelUpScreen, getForestEventScreen, getRescueOpportunityScreen,
+  getLevelUpScreen, getPerkSelectionScreen, getForestEventScreen, getRescueOpportunityScreen,
   getNearDeathWaitingScreen, getNpcRescueScreen, getNearDeathScreen,
   getCrierScreen,
   getHerbalistScreen, getInnHealerScreen, getAbductionDungeonScreen, getAbductionFightScreen, getAbductionEscapeScreen,
   getFactionHouseScreen, getFactionStandingsLines,
+  getMissingMerchantScreen,
+  getWildernessVictoryScreen,
+  getDungeonEventScreen, getDungeonCompleteScreen,
+  getRuinsScreen,
+  setWorldEventCache, setInvaderCache,
   renderBanner,
   LOCATION_BANNERS,
 };

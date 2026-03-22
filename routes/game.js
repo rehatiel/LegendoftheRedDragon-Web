@@ -1,12 +1,15 @@
 const express = require('express');
 const { getPlayer, updatePlayer, addNews, TODAY } = require('../db');
 const { LEVEL_UP_GAINS, TOWNS, expForNextLevel } = require('../game/data');
-const { runNewDay } = require('../game/newday');
+const { runNewDay, runWorldDay } = require('../game/newday');
 const {
   getTownScreen, getSetupScreen, getNearDeathWaitingScreen,
   getRoadScreen, getCampingScreen, getCaptiveScreen,
   getAbductionDungeonScreen, getInnScreen,
+  setWorldEventCache, setInvaderCache,
 } = require('../game/engine');
+const { getActiveWorldEvent, getInvadingEnemies } = require('../db');
+const { getEventDef } = require('../game/world_events');
 const { parseWounds, infectionLabel } = require('../game/wounds');
 const { getStartingRepUpdates } = require('../game/factions');
 
@@ -52,6 +55,10 @@ const HANDLERS = {
   ...require('../game/handlers/social'),
   ...require('../game/handlers/abduction'),
   ...require('../game/handlers/factions'),
+  ...require('../game/handlers/wilderness'),
+  ...require('../game/handlers/dungeon'),
+  ...require('../game/handlers/ruins'),
+  ...require('../game/handlers/world_events'),
 };
 
 // Auth guard
@@ -153,11 +160,21 @@ router.post('/action', ar(async (req, res) => {
   // New-day routine
   let pendingMessages = [];
   if (player.last_day < TODAY()) {
+    // World-level daily tasks (event rotation, invasions) — runs once per day server-wide
+    runWorldDay().catch(e => console.error('runWorldDay error:', e));
     const { updates, messages } = await runNewDay(player);
     await updatePlayer(player.id, updates);
     player = await getPlayer(player.id);
     pendingMessages = messages;
   }
+
+  // Refresh world event + invader caches (synchronously available in all screen builders)
+  const [activeEvent, townInvaders] = await Promise.all([
+    getActiveWorldEvent(),
+    getInvadingEnemies(player.current_town || 'dawnmark'),
+  ]);
+  setWorldEventCache(activeEvent ? getEventDef(activeEvent.type) : null);
+  setInvaderCache({ [player.current_town || 'dawnmark']: townInvaders });
 
   // Heartbeat — keep last_seen current for "who's online" tracking
   updatePlayer(player.id, { last_seen: new Date().toISOString() }).catch(() => {});

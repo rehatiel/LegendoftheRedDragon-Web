@@ -687,6 +687,170 @@ function getArmorByNum(num) {
   return ARMORS.find(a => a && a.num === num) || null;
 }
 
+// ── Perk system ───────────────────────────────────────────────────────────────
+// Perks are earned at levels 3, 6, 9, 12 (one per perk-level milestone).
+// Passive stat perks (hp_bonus, def_bonus, str_bonus) are applied immediately
+// on selection. Active perks are checked during combat via hasPerk().
+
+const PERKS = {
+  // Dread Knight (class 1)
+  soul_hunger:       { class: 1, name: 'Soul Hunger',        desc: 'Each kill heals 15% of your max HP.',                                   effect: 'kill_heal' },
+  iron_will:         { class: 1, name: 'Iron Will',          desc: '+30 to maximum Hit Points.',                                            effect: 'hp_bonus',  value: 30 },
+  terrify:           { class: 1, name: 'Terrify',            desc: 'Your presence causes enemies to flee more often.',                      effect: 'terrify' },
+  // Warrior (class 2)
+  unbreakable:       { class: 2, name: 'Unbreakable',        desc: 'Shield Slam has a 35% chance to stun the enemy for one round.',        effect: 'power_stun' },
+  fortress_stance:   { class: 2, name: 'Fortress Stance',    desc: '+25 permanent Defense.',                                               effect: 'def_bonus', value: 25 },
+  battle_cry:        { class: 2, name: 'Battle Cry',         desc: 'Critical hits deal bonus damage equal to 5× your level.',              effect: 'battle_cry' },
+  // Rogue (class 3)
+  poisoned_blade:    { class: 3, name: 'Poisoned Blade',     desc: 'Your attacks have a 25% chance to poison enemies.',                    effect: 'blade_poison' },
+  shadow_step:       { class: 3, name: 'Shadow Step',        desc: 'You deal a free ambush strike at the start of every fight.',           effect: 'first_strike' },
+  lucky:             { class: 3, name: 'Lucky',              desc: 'Find 30% more gold from every monster.',                               effect: 'gold_bonus', value: 0.30 },
+  // Mage (class 4)
+  spell_surge:       { class: 4, name: 'Spell Surge',        desc: 'Your Arcane Surge hits twice.',                                        effect: 'power_double' },
+  arcane_skin:       { class: 4, name: 'Arcane Skin',        desc: '+20 permanent Defense from magical wards.',                            effect: 'def_bonus', value: 20 },
+  foresight:         { class: 4, name: 'Foresight',          desc: '+20% base flee chance.',                                               effect: 'flee_bonus', value: 0.20 },
+  // Ranger (class 5)
+  armor_pierce:      { class: 5, name: 'Armor Pierce',       desc: 'Your attacks deal 35% more damage, cutting through all resistance.',   effect: 'armor_pierce', value: 0.35 },
+  animal_bond:       { class: 5, name: 'Animal Bond',        desc: 'A wolf companion fights beside you, dealing bonus damage each round.', effect: 'companion' },
+  hunters_eye:       { class: 5, name: "Hunter's Eye",       desc: '+8% critical hit chance.',                                             effect: 'crit_bonus', value: 0.08 },
+  // Paladin (class 6)
+  consecrate:        { class: 6, name: 'Consecrate',         desc: 'Deal double damage to undead enemies.',                                effect: 'undead_bonus' },
+  aura_courage:      { class: 6, name: 'Aura of Courage',    desc: '+15 permanent Strength from divine conviction.',                       effect: 'str_bonus', value: 15 },
+  lay_on_hands:      { class: 6, name: 'Lay on Hands',       desc: 'Divine Smite heals 20% of max HP instead of 10%.',                    effect: 'smite_heal_boost' },
+  // Druid (class 7)
+  shapeshift:        { class: 7, name: 'Shapeshift',         desc: 'Bear Form: +40 max HP. The wild also guides your escapes (+15% flee).', effect: 'shapeshift', value: 40 },
+  regrowth:          { class: 7, name: 'Regrowth',           desc: 'Regenerate 3% of max HP at the start of each combat round.',           effect: 'round_regen', value: 0.03 },
+  thorns:            { class: 7, name: 'Thorns',             desc: 'Reflect 15% of all damage taken back at your attacker.',               effect: 'thorns', value: 0.15 },
+  // Necromancer (class 8)
+  bone_shield:       { class: 8, name: 'Bone Shield',        desc: 'Absorb up to 20 damage each combat round.',                           effect: 'absorb', value: 20 },
+  corpse_explosion:  { class: 8, name: 'Corpse Explosion',   desc: 'On kill, necrotic energy grants +50% gold & exp from the next fight.', effect: 'kill_explosion' },
+  dark_pact:         { class: 8, name: 'Dark Pact',          desc: 'Death Coil deals 50% more damage, but costs an additional 10% max HP.', effect: 'dark_pact' },
+  // Elementalist (class 9)
+  overload:          { class: 9, name: 'Overload',           desc: 'Each attack deals +20% damage, but costs 2% of your max HP.',          effect: 'overload', value: 0.20 },
+  elemental_mastery: { class: 9, name: 'Elemental Mastery',  desc: 'Elemental Fury no longer costs HP to cast.',                           effect: 'no_hp_cost' },
+  storm_call:        { class: 9, name: 'Storm Call',         desc: 'Your attacks strike in a 2–3 hit chain of lightning.',                 effect: 'multi_hit' },
+  // Monk (class 10)
+  ki_shield:         { class: 10, name: 'Ki Shield',         desc: '25% chance to completely block an incoming attack.',                   effect: 'block', value: 0.25 },
+  pressure_points:   { class: 10, name: 'Pressure Points',   desc: 'Your attacks have a 20% chance to stun the enemy for one round.',     effect: 'stun_chance', value: 0.20 },
+  enlightenment:     { class: 10, name: 'Enlightenment',     desc: 'Gain 25% bonus experience from all kills.',                           effect: 'exp_bonus', value: 0.25 },
+};
+
+const CLASS_PERKS = {
+  1:  ['soul_hunger',  'iron_will',          'terrify'],
+  2:  ['unbreakable',  'fortress_stance',    'battle_cry'],
+  3:  ['poisoned_blade','shadow_step',       'lucky'],
+  4:  ['spell_surge',  'arcane_skin',        'foresight'],
+  5:  ['armor_pierce', 'animal_bond',        'hunters_eye'],
+  6:  ['consecrate',   'aura_courage',       'lay_on_hands'],
+  7:  ['shapeshift',   'regrowth',           'thorns'],
+  8:  ['bone_shield',  'corpse_explosion',   'dark_pact'],
+  9:  ['overload',     'elemental_mastery',  'storm_call'],
+  10: ['ki_shield',    'pressure_points',    'enlightenment'],
+};
+
+function getPerksForClass(classId) {
+  return (CLASS_PERKS[classId] || []).map(id => ({ id, ...PERKS[id] }));
+}
+
+// ── Named enemy name generation ───────────────────────────────────────────────
+
+const NAMED_ENEMY_POOL = {
+  firstNames: [
+    'Gorath', 'Silkfang', 'Krix', 'Morrigan', 'Vorn', 'Thrak',
+    'Grimtooth', 'Venomtail', 'Plaguerot', 'Wretchwail', 'Brutus',
+    'Hexor', 'Gnarlfang', 'Ashbane', 'Skullrot', 'Dreadmaw',
+    'Gutripper', 'Ironhide', 'Shadowfen', 'Coldblood', 'Wraithbone',
+    'Thornback', 'Bleakfang', 'Scelus', 'Ravagore',
+  ],
+  epithets: [
+    'the Bonebreaker', 'the Merciless', 'the Undying', 'the Accursed',
+    'the Ancient', 'the Forsaken', 'the Pale', 'the Cruel',
+    'the Ravager', 'the Desolate', 'the Damned', 'the Eternal',
+    'the Dreadful', 'the Vile', 'the Hollow', 'the Hateful',
+  ],
+  killTitles: [
+    'Dragonkiller', 'Bloodsoaked', 'Manslayer', 'Doombranded',
+    'Deathbringer', 'Soulreaper', 'Fleshrender', 'Warbringer',
+    'the Notorious', 'the Infamous', 'the Feared',
+  ],
+};
+
+function generateNamedEnemyName() {
+  const { firstNames, epithets } = NAMED_ENEMY_POOL;
+  const fn = firstNames[Math.floor(Math.random() * firstNames.length)];
+  const ep = epithets[Math.floor(Math.random() * epithets.length)];
+  return `${fn} ${ep}`;
+}
+
+function pickKillTitle() {
+  const { killTitles } = NAMED_ENEMY_POOL;
+  return killTitles[Math.floor(Math.random() * killTitles.length)];
+}
+
+// ── Named & cursed items ──────────────────────────────────────────────────────
+// Named items drop from named enemies (25%) or rare forest chance (1%).
+// Cursed items are sold only at the Duskveil black market.
+// Cursed items cannot be unequipped once worn.
+const NAMED_ITEMS = {
+  // ── Named weapons ────────────────────────────────────────────────────────────
+  widows_fang: {
+    type: 'weapon', name: "Widow's Fang", cursed: false,
+    strength: 45, tier: 4,
+    effect: 'poison_on_hit', effectDesc: '25% chance to poison the enemy on hit',
+    lore: "A slender blade the colour of a clouded moon. The edge never quite loses its venom.",
+  },
+  sunbreaker: {
+    type: 'weapon', name: 'Sunbreaker', cursed: false,
+    strength: 80, tier: 6,
+    effect: 'undead_bonus', effectDesc: '+60% damage vs undead enemies',
+    lore: "Forged under a solar eclipse. The runes on the flat glow faintly near the undead.",
+  },
+  oathkeeper: {
+    type: 'weapon', name: 'Oathkeeper', cursed: false,
+    strength: 120, tier: 8,
+    effect: 'oath_break', effectDesc: 'Shatters permanently if you commit a chaotic act',
+    lore: "Sworn blades cannot serve the faithless. It will know if you break yours.",
+  },
+  // ── Cursed weapons ────────────────────────────────────────────────────────────
+  blooddrinker: {
+    type: 'weapon', name: 'Blooddrinker', cursed: true,
+    strength: 200, tier: 10,
+    effect: 'life_drain', effectDesc: 'Drains 15% of damage dealt back as HP',
+    lore: "A blackened blade that seems to lean toward living things. It is never sated.",
+  },
+  // ── Named armors ─────────────────────────────────────────────────────────────
+  cowards_cloak: {
+    type: 'armor', name: "The Coward's Cloak", cursed: false,
+    defense: 15, tier: 3, strPenalty: -10,
+    effect: 'flee_bonus', effectDesc: '+25% flee chance, −10 Strength (permanent while worn)',
+    lore: "Enchanted to blur the outline of the wearer. The enchantment has opinions about fighting.",
+  },
+  // ── Cursed armors ─────────────────────────────────────────────────────────────
+  voidplate: {
+    type: 'armor', name: 'Voidplate', cursed: true,
+    defense: 500, tier: 13,
+    effect: 'soul_drain', effectDesc: '−1 Charm per day',
+    lore: "Armour hammered from condensed shadow. It hungers. Every day, a little more.",
+  },
+};
+
+// Returns a random non-cursed named item suitable for a drop at the given level.
+// includeCursed is only set true for the Duskveil market flow (not drops).
+function getNamedItemDrop(level, includeCursed = false) {
+  const pool = Object.entries(NAMED_ITEMS)
+    .filter(([, item]) => !item.cursed || includeCursed)
+    .map(([id, item]) => ({ id, ...item }));
+  if (!pool.length) return null;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+function hasPerk(player, perkId) {
+  try {
+    const perks = typeof player.perks === 'string' ? JSON.parse(player.perks) : (player.perks || []);
+    return Array.isArray(perks) && perks.includes(perkId);
+  } catch { return false; }
+}
+
 module.exports = {
   WEAPONS, ARMORS, RED_DRAGON, MONSTER_TEMPLATES, TOWNS, ROADS,
   SOCIAL_SPACES, SHOP_OWNERS,
@@ -695,4 +859,7 @@ module.exports = {
   getRoadSegments,
   expForLevel, expForNextLevel, EXP_TABLE,
   CLASS_NAMES, CLASS_POWER_MOVES, LEVEL_UP_GAINS,
+  PERKS, CLASS_PERKS, getPerksForClass, hasPerk,
+  NAMED_ENEMY_POOL, generateNamedEnemyName, pickKillTitle,
+  NAMED_ITEMS, getNamedItemDrop,
 };

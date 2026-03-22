@@ -1,10 +1,12 @@
-const { getPlayer, updatePlayer, addNews, getHallOfKings, getRecentNews, getRetiredPlayersInTown } = require('../../db');
-const { WEAPONS, ARMORS, TOWNS, SHOP_OWNERS, getWeaponByNum, getArmorByNum } = require('../data');
+const { getPlayer, updatePlayer, addNews, getHallOfKings, getRecentNews, getRetiredPlayersInTown, getActiveWorldEvent } = require('../../db');
+const { WEAPONS, ARMORS, TOWNS, SHOP_OWNERS, getWeaponByNum, getArmorByNum, PERKS, getPerksForClass, hasPerk } = require('../data');
 const { checkLevelUp } = require('../newday');
+const { getEventDef } = require('../world_events');
 const {
   getTownScreen, getWeaponShopScreen, getArmorShopScreen, getInnScreen, getInnHealerScreen,
   getHerbalistScreen, getBankScreen, getMasterScreen, getTrainingScreen, getGardenScreen,
   getBardScreen, getNewsScreen, getCharacterScreen, getCrierScreen, getLevelUpScreen,
+  getPerkSelectionScreen,
 } = require('../engine');
 const {
   parseWounds, healerWoundCost, healerInfectionCost, healerCanTreat,
@@ -16,15 +18,6 @@ const { isRefused, adjustReps } = require('../factions');
 // ── INN ───────────────────────────────────────────────────────────────────────
 
 async function inn({ player, req, res, pendingMessages }) {
-  if (player.quest_id === 'wounded_knight' && player.quest_step >= 1) {
-    await updatePlayer(player.id, {
-      quest_id: '', quest_step: 0, charm: player.charm + 2,
-      exp: Number(player.exp) + 500 * player.level,
-      gold: Number(player.gold) + 200 * player.level,
-    });
-    player = await getPlayer(player.id);
-    pendingMessages = [...pendingMessages, `\`0The knight from the forest finds you here! "I kept my promise." He presses ${(200 * player.level).toLocaleString()} gold into your hands. +2 charm, +${(500 * player.level).toLocaleString()} exp!`];
-  }
   const sleeperCount = await getRetiredPlayersInTown(player.current_town || 'dawnmark');
   return res.json({ ...getInnScreen(player, sleeperCount), pendingMessages });
 }
@@ -190,15 +183,6 @@ async function bank_withdraw({ player, param, req, res, pendingMessages }) {
 // ── MASTER ────────────────────────────────────────────────────────────────────
 
 async function master({ player, req, res, pendingMessages }) {
-  if (player.quest_id === 'wounded_knight' && player.quest_step >= 1) {
-    await updatePlayer(player.id, {
-      quest_id: '', quest_step: 0, charm: player.charm + 2,
-      exp: Number(player.exp) + 500 * player.level,
-      gold: Number(player.gold) + 200 * player.level,
-    });
-    player = await getPlayer(player.id);
-    pendingMessages = [...pendingMessages, `\`0The knight from the forest finds you here! "I kept my promise." He presses ${(200 * player.level).toLocaleString()} gold into your hands. +2 charm, +${(500 * player.level).toLocaleString()} exp!`];
-  }
   return res.json({ ...getMasterScreen(player), pendingMessages });
 }
 
@@ -277,6 +261,8 @@ async function buy_weapon({ player, param, req, res, pendingMessages }) {
     return res.json({ ...getWeaponShopScreen(player), pendingMessages: ['`@That weapon is not available here. Travel to a larger city.'] });
   if (player.weapon_num === weapon.num)
     return res.json({ ...getWeaponShopScreen(player), pendingMessages: ['`7You already have that weapon.'] });
+  if (player.weapon_cursed)
+    return res.json({ ...getWeaponShopScreen(player), pendingMessages: ['`@Your cursed weapon cannot be removed — it is bound to your hand!'] });
 
   // Mirror price calculation from getWeaponShopScreen
   const todayNum = Math.floor(Date.now() / 86400000);
@@ -288,7 +274,14 @@ async function buy_weapon({ player, param, req, res, pendingMessages }) {
   if (owner.fleeDiscount && weapon.bonus === 'flee_bonus') effectiveMult *= 0.85;
   if (owner.poisonGearDiscount && weapon.bonus && weapon.bonusDesc && weapon.bonusDesc.toLowerCase().includes('poison')) effectiveMult *= 0.85;
   if (dailyDiscountNum === weapon.num) effectiveMult *= 0.80;
-  const displayPrice = Math.floor(weapon.price * effectiveMult);
+  let displayPrice = Math.floor(weapon.price * effectiveMult);
+
+  const activeWorldEvent = await getActiveWorldEvent();
+  if (activeWorldEvent) {
+    const evDef = getEventDef(activeWorldEvent.type);
+    if (evDef?.effects?.shopPriceMult && evDef.effects.shopPriceMult !== 1.0)
+      displayPrice = Math.floor(displayPrice * evDef.effects.shopPriceMult);
+  }
 
   const cur = player.weapon_num > 0 ? getWeaponByNum(player.weapon_num) : null;
   let sellMult = owner.sellMult;
@@ -329,6 +322,8 @@ async function buy_armor({ player, param, req, res, pendingMessages }) {
     return res.json({ ...getArmorShopScreen(player), pendingMessages: ['`@That armour is not available here. Travel to a larger city.'] });
   if (player.arm_num === armor.num)
     return res.json({ ...getArmorShopScreen(player), pendingMessages: ['`7You already have that armour.'] });
+  if (player.armor_cursed)
+    return res.json({ ...getArmorShopScreen(player), pendingMessages: ['`@Your cursed armour cannot be removed — it has fused to your body!'] });
 
   // Mirror price calculation from getArmorShopScreen
   const todayNum = Math.floor(Date.now() / 86400000);
@@ -340,7 +335,14 @@ async function buy_armor({ player, param, req, res, pendingMessages }) {
   if (owner.fleeDiscount && armor.bonus === 'flee_bonus') effectiveMult *= 0.85;
   if (owner.poisonGearDiscount && armor.bonus === 'poison_resist') effectiveMult *= 0.85;
   if (dailyDiscountNum === armor.num) effectiveMult *= 0.80;
-  const displayPrice = Math.floor(armor.price * effectiveMult);
+  let displayPrice = Math.floor(armor.price * effectiveMult);
+
+  const activeWorldEvent = await getActiveWorldEvent();
+  if (activeWorldEvent) {
+    const evDef = getEventDef(activeWorldEvent.type);
+    if (evDef?.effects?.shopPriceMult && evDef.effects.shopPriceMult !== 1.0)
+      displayPrice = Math.floor(displayPrice * evDef.effects.shopPriceMult);
+  }
 
   const cur = player.arm_num > 0 ? getArmorByNum(player.arm_num) : null;
   let sellMult = owner.sellMult;
@@ -568,6 +570,116 @@ async function herbalist_infection({ player, req, res, pendingMessages }) {
   return res.json({ ...getTownScreen(player), pendingMessages: msgs });
 }
 
+// ── PERKS ─────────────────────────────────────────────────────────────────────
+
+async function perk_select({ player, req, res, pendingMessages }) {
+  if ((player.perk_points || 0) <= 0)
+    return res.json({ ...getTownScreen(player), pendingMessages: ['`7You have no perk points to spend.'] });
+  return res.json({ ...getPerkSelectionScreen(player), pendingMessages });
+}
+
+async function choose_perk({ player, param, req, res, pendingMessages }) {
+  if ((player.perk_points || 0) <= 0)
+    return res.json({ ...getTownScreen(player), pendingMessages: ['`7You have no perk points to spend.'] });
+
+  const perkId = param;
+  const perk = PERKS[perkId];
+  if (!perk) return res.json({ ...getPerkSelectionScreen(player), pendingMessages: ['`@Unknown perk.'] });
+
+  // Validate class ownership
+  const classPerks = getPerksForClass(player.class);
+  if (!classPerks.some(p => p.id === perkId))
+    return res.json({ ...getPerkSelectionScreen(player), pendingMessages: ['`@That perk is not available for your class.'] });
+
+  // Prevent duplicate picks
+  if (hasPerk(player, perkId))
+    return res.json({ ...getPerkSelectionScreen(player), pendingMessages: ['`@You have already mastered that perk.'] });
+
+  const currentPerks = (() => { try { return JSON.parse(player.perks || '[]'); } catch { return []; } })();
+  const updates = {
+    perks: JSON.stringify([...currentPerks, perkId]),
+    perk_points: (player.perk_points || 0) - 1,
+  };
+
+  // Apply immediate stat bonuses
+  if (perk.effect === 'hp_bonus' || perk.effect === 'shapeshift') {
+    updates.hit_max    = player.hit_max + perk.value;
+    updates.hit_points = Math.min(player.hit_max + perk.value, player.hit_points + perk.value);
+  }
+  if (perk.effect === 'def_bonus') {
+    updates.defense = player.defense + perk.value;
+  }
+  if (perk.effect === 'str_bonus') {
+    updates.strength = player.strength + perk.value;
+  }
+
+  await updatePlayer(player.id, updates);
+  player = await getPlayer(player.id);
+
+  const msgs = [
+    `\`$You have mastered \`!\`${perk.name}\`$!`,
+    `\`%${perk.desc}`,
+  ];
+  if (updates.perk_points > 0) msgs.push(`\`7You have \`$${updates.perk_points}\`7 perk point(s) remaining — visit Perks to spend them.`);
+
+  return res.json({ ...getTownScreen(player), pendingMessages: [...pendingMessages, ...msgs] });
+}
+
+// ── QUEST HANDLERS ─────────────────────────────────────────────────────────────
+
+async function merchant_help({ player, req, res, pendingMessages }) {
+  if (player.quest_id !== 'missing_merchant') return res.json({ ...getTownScreen(player), pendingMessages });
+  const expReward  = 500 * player.level;
+  const alignGain  = 15;
+  const repUpdates = { rep_knights: Math.min(100, (player.rep_knights || 0) + 3), rep_merchants: Math.min(100, (player.rep_merchants || 0) + 2) };
+  await updatePlayer(player.id, {
+    quest_id: '', quest_step: 0, quest_data: '',
+    charm: player.charm + 3,
+    exp:   Number(player.exp) + expReward,
+    alignment: Math.min(100, (player.alignment || 0) + alignGain),
+    ...repUpdates,
+  });
+  player = await getPlayer(player.id);
+  await addNews(`\`0${player.handle}\`% rescued a missing merchant on the road!`);
+  const levelUp = checkLevelUp(player);
+  if (levelUp) {
+    await updatePlayer(player.id, levelUp.updates);
+    player = await getPlayer(player.id);
+    await addNews(`\`$${player.handle}\`% has advanced to level \`$${levelUp.newLevel}\`%!`);
+    return res.json({ ...getLevelUpScreen(player, levelUp.newLevel, levelUp.hpGain, levelUp.strGain, levelUp.perkPoint), pendingMessages: [
+      ...pendingMessages,
+      '`0You heave the merchant onto his horse and walk him back to town.',
+      '`#He grips your hand, speechless with relief.',
+      `\`$+${expReward.toLocaleString()} exp, +3 charm, +${alignGain} alignment.`,
+    ]});
+  }
+  return res.json({ ...getTownScreen(player), pendingMessages: [
+    ...pendingMessages,
+    '`0You heave the merchant onto his horse and walk him back to town.',
+    '`#He grips your hand, speechless with relief.',
+    `\`$+${expReward.toLocaleString()} exp, +3 charm, +${alignGain} alignment.`,
+  ]});
+}
+
+async function merchant_loot({ player, req, res, pendingMessages }) {
+  if (player.quest_id !== 'missing_merchant') return res.json({ ...getTownScreen(player), pendingMessages });
+  const goldReward = 300 * player.level;
+  const alignLoss  = -20;
+  await updatePlayer(player.id, {
+    quest_id: '', quest_step: 0, quest_data: '',
+    gold: Number(player.gold) + goldReward,
+    alignment: Math.max(-100, (player.alignment || 0) + alignLoss),
+    rep_merchants: Math.max(-100, (player.rep_merchants || 0) - 3),
+  });
+  player = await getPlayer(player.id);
+  return res.json({ ...getTownScreen(player), pendingMessages: [
+    ...pendingMessages,
+    '`@You pocket the gold and walk away.',
+    '`8He\'ll be found eventually. Probably.',
+    `\`$+${goldReward.toLocaleString()} gold. \`@Alignment ${alignLoss}.`,
+  ]});
+}
+
 module.exports = {
   inn, inn_rest, inn_gem, inn_antidote,
   inn_retire, inn_wake,
@@ -586,4 +698,8 @@ module.exports = {
   herbalist,
   herbalist_wound,
   herbalist_infection,
+  perk_select,
+  choose_perk,
+  merchant_help,
+  merchant_loot,
 };

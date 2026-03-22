@@ -1571,6 +1571,99 @@ const FOREST_EVENTS = [
     },
   },
 
+  // ── 21. THE BLOOD OATH PACT ──────────────────────────────────────────────────
+  {
+    id: 'blood_oath_pact',
+    title: 'The Pact',
+    minLevel: 5,
+    blockIfFlag: 'blood_oath',
+    art: [
+      "   _____           ",
+      "  / . . \\          ",
+      " | ( ♥ ) |         ",
+      " |_______|         ",
+      "  \\~~~~~/ \\       ",
+      "   ======= \\      ",
+    ],
+    artColor: 'red',
+    intro: [
+      'A hooded figure steps from the shadows, extending one pale hand.',
+      'In its palm: a vial of deep red fluid, warm to the eye.',
+      '"Your life for power. A portion of your life, in any case."',
+      '"The exchange is permanent. Choose wisely."',
+    ],
+    choices: [
+      { key: 'A', label: 'Accept the pact',              param: 'accept' },
+      { key: 'R', label: 'Refuse and walk away',         param: 'refuse' },
+    ],
+    outcomes: {
+      accept: {
+        bloodOathEffect: true,
+        msg: [
+          'You drink. The warmth floods downward — then the cold follows.',
+          '`@Your maximum life diminishes. Something vital has been traded away.',
+          '`$In exchange, a surge of raw power fills the void.',
+          '`8The figure is gone. The contract is written in blood.',
+        ],
+      },
+      refuse: {
+        msg: [
+          'You shake your head.',
+          'The figure nods — unsurprised, unhurried.',
+          '"The offer stands for others. Not for you again."',
+          'It dissolves into the shadow before you can blink.',
+        ],
+      },
+    },
+  },
+
+  // ── 23. THE CURSED BLADE ──────────────────────────────────────────────────────
+  {
+    id: 'cursed_blade',
+    title: 'A Blade in the Dark',
+    minLevel: 3,
+    blockIfQuestId: 'cursed_blade_bearer',
+    art: [
+      "      /|           ",
+      "     / |           ",
+      "    /  |           ",
+      "   / * |           ",
+      "  / *  |           ",
+      " /_____|           ",
+    ],
+    artColor: 'red',
+    intro: [
+      'Half-buried in the roots of a dead tree, you find a blade.',
+      'It pulses with a cold light that seems to breathe.',
+      'The hilt fits your hand perfectly — as if it was waiting.',
+      'Something promises power. Something promises cost.',
+    ],
+    choices: [
+      { key: 'T', label: 'Take the blade',          param: 'take'  },
+      { key: 'L', label: 'Leave it in the earth',   param: 'leave' },
+    ],
+    outcomes: {
+      take: {
+        strDelta:   25,
+        alignDelta: -30,
+        questStart: 'cursed_blade_bearer',
+        msg: [
+          'Your hand closes around the hilt.',
+          '`@The dark light surges up your arm and settles behind your eyes.',
+          '`$You feel stronger. Unnaturally so.',
+          '`@Something was given up in exchange. `$+25 Strength. `@Alignment -30.',
+        ],
+      },
+      leave: {
+        msg: [
+          'You pull your hand back.',
+          '`7The blade shivers — almost disappointed.',
+          'You leave it where it lies. Some things are not yours to take.',
+        ],
+      },
+    },
+  },
+
 ];
 
 module.exports = { MONSTER_ART, FOREST_EVENTS };

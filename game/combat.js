@@ -1,4 +1,5 @@
 // Combat resolution for SoT
+const { hasPerk } = require('./data');
 
 function rollDice(min, max) {
   return min + Math.floor(Math.random() * (max - min + 1));
@@ -55,6 +56,12 @@ function resolveRound(player, monster, action) {
     if (hpRatio < 0.20) fleeChance += 0.15;
     fleeChance -= (monster.strength / 2000) * 0.30;
     fleeChance -= locPen.fleePct;
+    // Perk: Mage Foresight — +20% flee chance
+    if (hasPerk(player, 'foresight')) fleeChance += 0.20;
+    // Perk: Druid Shapeshift — +15% flee chance (wolf aspect)
+    if (hasPerk(player, 'shapeshift')) fleeChance += 0.15;
+    // Named armor: Coward's Cloak — +25% flee chance
+    if (player.named_armor_id === 'cowards_cloak') fleeChance += 0.25;
     fleeChance = Math.min(0.90, Math.max(0.05, fleeChance));
     if (locPen.fleePct > 0) log.push({ type: 'wound_penalty', text: '`8Your wounded leg slows your escape!' });
 
@@ -83,8 +90,15 @@ function resolveRound(player, monster, action) {
   }
 
   // Fleeing monsters try to escape when badly wounded
-  if (monster.behavior === 'fleeing' && monster.currentHp < monster.maxHp * 0.30 && Math.random() < 0.40) {
+  const terrifyBonus = hasPerk(player, 'terrify') ? 0.20 : 0;
+  if (monster.behavior === 'fleeing' && monster.currentHp < monster.maxHp * 0.30 && Math.random() < (0.40 + terrifyBonus)) {
     log.push({ type: 'monster_flee', text: `\`7The ${monster.name} turns tail and flees into the darkness!` });
+    monsterFled = true;
+    return { playerDamage: 0, monsterDamage: 0, poisonDamage, fled: false, monsterFled: true, appliedPoison: false, log, playerCrit, monsterCrit };
+  }
+  // Perk: Dread Knight Terrify — any monster below 25% HP may be terrified into fleeing
+  if (terrifyBonus > 0 && monster.behavior !== 'fleeing' && monster.currentHp < monster.maxHp * 0.25 && Math.random() < 0.15) {
+    log.push({ type: 'monster_flee', text: `\`#Your terrifying presence breaks the ${monster.name}\'s will — it flees!` });
     monsterFled = true;
     return { playerDamage: 0, monsterDamage: 0, poisonDamage, fled: false, monsterFled: true, appliedPoison: false, log, playerCrit, monsterCrit };
   }
@@ -102,7 +116,9 @@ function resolveRound(player, monster, action) {
     log.push({ type: 'power_move', text: `\`!You channel your power and unleash ${move.name}!\`` });
   }
 
-  playerCrit = action !== 'power' && Math.random() < 0.08;
+  // Perk: Ranger Hunter's Eye — +8% crit chance
+  const critChance = 0.08 + (hasPerk(player, 'hunters_eye') ? 0.08 : 0);
+  playerCrit = action !== 'power' && Math.random() < critChance;
   if (playerCrit) rawAttack = Math.floor(rawAttack * 2.2);
 
   // Defensive monsters absorb 20% of incoming damage

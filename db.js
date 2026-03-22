@@ -169,4 +169,97 @@ async function getAllBanners() {
   return rows;
 }
 
-module.exports = { pool, initDb, getPlayer, getPlayerByUsername, updatePlayer, createPlayer, getAllPlayers, getPlayersInTown, getRetiredPlayersInTown, getNearDeathPlayers, getCaptivePlayers, getRecentNews, addNews, getHallOfKings, addToHallOfKings, TODAY, getBannerOverride, setBanner, deleteBanner, getAllBanners, loadBanners };
+// ── Named enemies ─────────────────────────────────────────────────────────────
+
+async function getActiveNamedEnemiesForLevel(level) {
+  const { rows } = await pool.query(
+    'SELECT * FROM named_enemies WHERE defeated = 0 AND level BETWEEN $1 AND $2 ORDER BY kills DESC, created_at ASC',
+    [Math.max(1, level - 1), level + 1]
+  );
+  return rows;
+}
+
+async function createNamedEnemy(data) {
+  const { rows } = await pool.query(
+    `INSERT INTO named_enemies (template_name, given_name, level, template_index, strength, hp, gold, exp)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+    [data.template_name, data.given_name, data.level, data.template_index, data.strength, data.hp, data.gold, data.exp]
+  );
+  return rows[0];
+}
+
+async function updateNamedEnemy(id, fields) {
+  const keys = Object.keys(fields);
+  if (!keys.length) return;
+  const set = keys.map((k, i) => `${k} = $${i + 1}`).join(', ');
+  await pool.query(`UPDATE named_enemies SET ${set} WHERE id = $${keys.length + 1}`, [...keys.map(k => fields[k]), id]);
+}
+
+async function getNamedEnemy(id) {
+  const { rows } = await pool.query('SELECT * FROM named_enemies WHERE id = $1', [id]);
+  return rows[0] || null;
+}
+
+async function getUndefeatedNamedEnemiesWithKills(minKills) {
+  const { rows } = await pool.query(
+    'SELECT * FROM named_enemies WHERE defeated = 0 AND kills >= $1 AND reached_town IS NULL ORDER BY kills DESC',
+    [minKills]
+  );
+  return rows;
+}
+
+async function getInvadingEnemies(townId) {
+  const { rows } = await pool.query(
+    'SELECT * FROM named_enemies WHERE defeated = 0 AND reached_town = $1 ORDER BY kills DESC',
+    [townId]
+  );
+  return rows;
+}
+
+// ── World events ──────────────────────────────────────────────────────────────
+
+async function getActiveWorldEvent() {
+  const now = Date.now();
+  const { rows } = await pool.query(
+    'SELECT * FROM world_events WHERE active = TRUE AND ends_at > $1 ORDER BY id DESC LIMIT 1',
+    [now]
+  );
+  return rows[0] || null;
+}
+
+async function triggerWorldEvent(type, durationDays) {
+  const now = Date.now();
+  const endsAt = now + durationDays * 86400000;
+  const { rows } = await pool.query(
+    'INSERT INTO world_events (type, started_at, ends_at, active) VALUES ($1, $2, $3, TRUE) RETURNING *',
+    [type, now, endsAt]
+  );
+  return rows[0];
+}
+
+async function expireWorldEvents() {
+  const now = Date.now();
+  const { rows } = await pool.query(
+    'UPDATE world_events SET active = FALSE WHERE active = TRUE AND ends_at <= $1 RETURNING type',
+    [now]
+  );
+  return rows.map(r => r.type); // returns list of just-expired types
+}
+
+// ── World state key-value ─────────────────────────────────────────────────────
+
+async function getWorldState(key) {
+  const { rows } = await pool.query('SELECT value FROM world_state WHERE key = $1', [key]);
+  return rows[0] ? rows[0].value : null;
+}
+
+async function setWorldState(key, value) {
+  const now = Date.now();
+  await pool.query(
+    `INSERT INTO world_state (key, value, updated_at) VALUES ($1, $2, $3)
+     ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = $3`,
+    [key, String(value), now]
+  );
+}
+
+module.exports = { pool, initDb, getPlayer, getPlayerByUsername, updatePlayer, createPlayer, getAllPlayers, getPlayersInTown, getRetiredPlayersInTown, getNearDeathPlayers, getCaptivePlayers, getRecentNews, addNews, getHallOfKings, addToHallOfKings, TODAY, getBannerOverride, setBanner, deleteBanner, getAllBanners, loadBanners, getActiveNamedEnemiesForLevel, createNamedEnemy, updateNamedEnemy, getNamedEnemy, getUndefeatedNamedEnemiesWithKills, getInvadingEnemies, getActiveWorldEvent, triggerWorldEvent, expireWorldEvents, getWorldState, setWorldState };
