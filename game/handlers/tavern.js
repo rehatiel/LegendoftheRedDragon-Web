@@ -3,6 +3,7 @@ const { getRandomMonster, TOWNS } = require('../data');
 const { resolvePvP } = require('../combat');
 const { getTownScreen, getTavernScreen, getTavernDrinkScreen, getTavernEncounterScreen } = require('../engine');
 const { pickEncounter, RESOLVERS } = require('../tavern_events');
+const { checkLevelUp } = require('../newday');
 
 // Helper: fetch players in the same town as player
 function townPlayers(player) {
@@ -41,6 +42,8 @@ async function tavern_attack({ player, param, req, res, pendingMessages }) {
 
   if (!target)
     return res.json({ ...getTavernScreen(player, await townPlayers(player)), pendingMessages: ['`@Invalid target.'] });
+  if (target.id === player.id)
+    return res.json({ ...getTavernScreen(player, await townPlayers(player)), pendingMessages: ['`@You cannot attack yourself.'] });
 
   // Wrap PvP in a transaction to prevent race conditions on both player rows
   const client = await pool.connect();
@@ -58,6 +61,10 @@ async function tavern_attack({ player, param, req, res, pendingMessages }) {
     freshPlayer = fp;
     fullTarget  = ft;
 
+    if (freshPlayer.id === fullTarget.id) {
+      await client.query('ROLLBACK');
+      return res.json({ ...getTavernScreen(player, await townPlayers(player)), pendingMessages: ['`@You cannot attack yourself.'] });
+    }
     if (freshPlayer.human_fights_left <= 0) {
       await client.query('ROLLBACK');
       return res.json({ ...getTavernScreen(player, await townPlayers(player)), pendingMessages: ['`@No human fights left today!'] });
@@ -89,6 +96,13 @@ async function tavern_attack({ player, param, req, res, pendingMessages }) {
         await client.query('COMMIT');
         await addNews(`\`#${freshPlayer.handle}\`% mesmerised \`@${fullTarget.handle}\`% with a vampiric gaze and claimed their gold!`);
         player = await getPlayer(player.id);
+        const hypLevelUp = checkLevelUp(player);
+        if (hypLevelUp) {
+          await updatePlayer(player.id, hypLevelUp.updates);
+          player = await getPlayer(player.id);
+          await addNews(`\`$${player.handle}\`% has reached level \`$${hypLevelUp.newLevel}\`%!`);
+          msgs.push(`\`$LEVEL UP! You are now level ${hypLevelUp.newLevel}!`);
+        }
         return res.json({ ...getTavernScreen(player, await townPlayers(player)), pendingMessages: msgs });
       }
     }
@@ -122,14 +136,22 @@ async function tavern_attack({ player, param, req, res, pendingMessages }) {
     client.release();
   }
 
-  // Post-commit: news and response (using sanitised handles to avoid color code injection)
+  // Post-commit: news, level-up check, and response
   if (attackerWon) {
     await addNews(`\`@${freshPlayer.handle}\`% defeated \`@${fullTarget.handle}\`% in the tavern and stole gold!`);
+    player = await getPlayer(player.id);
+    const pvpLevelUp = checkLevelUp(player);
+    if (pvpLevelUp) {
+      await updatePlayer(player.id, pvpLevelUp.updates);
+      player = await getPlayer(player.id);
+      await addNews(`\`$${player.handle}\`% has reached level \`$${pvpLevelUp.newLevel}\`%!`);
+      msgs.push(`\`$LEVEL UP! You are now level ${pvpLevelUp.newLevel}!`);
+    }
   } else {
     await addNews(`\`@${freshPlayer.handle}\`% was defeated by \`$${fullTarget.handle}\`% in the tavern!`);
+    player = await getPlayer(player.id);
   }
 
-  player = await getPlayer(player.id);
   return res.json({ ...getTavernScreen(player, await townPlayers(player)), pendingMessages: msgs });
 }
 
