@@ -4,6 +4,7 @@ const { resolvePvP } = require('../combat');
 const { getTownScreen, getTavernScreen, getTavernDrinkScreen, getTavernEncounterScreen } = require('../engine');
 const { pickEncounter, RESOLVERS } = require('../tavern_events');
 const { checkLevelUp } = require('../newday');
+const { buildTitleAward } = require('../titles');
 
 // Helper: fetch players in the same town as player
 function townPlayers(player) {
@@ -12,7 +13,13 @@ function townPlayers(player) {
 
 async function tavern({ player, req, res, pendingMessages }) {
   const today = Math.floor(Date.now() / 86400000);
-  if (player.encounter_day !== today && Math.random() < 0.40) {
+
+  // Widowmaker reaction: NPCs have heard the name. They won't approach first.
+  const isWidowmaker = player.active_title === 'widowmaker';
+  const encounterChance = isWidowmaker ? 0.10 : 0.40;
+  const widowmakerMsg = isWidowmaker ? '`@The barflies recognise you. Nobody meets your eye tonight.' : null;
+
+  if (player.encounter_day !== today && Math.random() < encounterChance) {
     const encounter = pickEncounter(player);
     if (encounter) {
       req.session.tavernEncounter = encounter.id;
@@ -22,7 +29,8 @@ async function tavern({ player, req, res, pendingMessages }) {
     }
   }
   const others = await townPlayers(player);
-  return res.json({ ...getTavernScreen(player, others), pendingMessages });
+  const msgs = widowmakerMsg ? [...pendingMessages, widowmakerMsg] : pendingMessages;
+  return res.json({ ...getTavernScreen(player, others), pendingMessages: msgs });
 }
 
 async function tavern_encounter({ player, param, req, res, pendingMessages }) {
@@ -136,7 +144,7 @@ async function tavern_attack({ player, param, req, res, pendingMessages }) {
     client.release();
   }
 
-  // Post-commit: news, level-up check, and response
+  // Post-commit: news, level-up check, Widowmaker title, and response
   if (attackerWon) {
     await addNews(`\`@${freshPlayer.handle}\`% defeated \`@${fullTarget.handle}\`% in the tavern and stole gold!`);
     player = await getPlayer(player.id);
@@ -146,6 +154,16 @@ async function tavern_attack({ player, param, req, res, pendingMessages }) {
       player = await getPlayer(player.id);
       await addNews(`\`$${player.handle}\`% has reached level \`$${pvpLevelUp.newLevel}\`%!`);
       msgs.push(`\`$LEVEL UP! You are now level ${pvpLevelUp.newLevel}!`);
+    }
+    // Widowmaker title: 10+ PvP kills
+    if (player.kills >= 10) {
+      const titleAward = buildTitleAward(player, 'widowmaker');
+      if (titleAward) {
+        await updatePlayer(player.id, titleAward);
+        player = await getPlayer(player.id);
+        msgs.push('`@You have earned the title: `$the Widowmaker`@. The tavern falls silent.');
+        await addNews(`\`@${player.handle}\`% has earned the title \`$the Widowmaker\`% — their tenth kill.`);
+      }
     }
   } else {
     await addNews(`\`@${freshPlayer.handle}\`% was defeated by \`$${fullTarget.handle}\`% in the tavern!`);

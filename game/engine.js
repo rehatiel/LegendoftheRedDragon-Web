@@ -3,6 +3,7 @@ const { WEAPONS, ARMORS, expForNextLevel, CLASS_NAMES, CLASS_POWER_MOVES, MONSTE
 const { MONSTER_ART } = require('./forest_events');
 const { getQuestName, getQuestStepText, getAlignmentLabel } = require('./quests');
 const { getBannerOverride } = require('../db');
+const { DEED_TITLES, getEarnedTitles, getActiveTitleDisplay } = require('./titles');
 
 const c = {
   yellow:  '`$',
@@ -691,6 +692,20 @@ function getTownScreen(player) {
   const visitedRuins = JSON.parse(player.ruins_visited || '[]');
   const ruinVisited = ruin ? visitedRuins.includes(ruin.id) : false;
 
+  // Veilborn quest NPC — appears in the right town at each step
+  const VEILBORN_STEPS = {
+    1: { town: 'dawnmark',   action: 'veilborn_scholar',   label: 'Speak to Scholar Voss',              color: c.cyan },
+    2: { town: 'ironhold',   action: 'veilborn_ironhold',  label: 'Report to Captain Ralen',            color: c.cyan },
+    3: { town: 'stormwatch', action: 'veilborn_stormwatch',label: 'Seek the Archivist',                 color: c.cyan },
+    4: { town: 'graveport',  action: 'veilborn_graveport', label: 'Board the ghost ship',               color: c.red  },
+    5: { town: 'ashenfall',  action: 'veilborn_ashenfall', label: 'Forge the Warden\'s Seal',           color: c.yellow },
+    6: { town: 'dawnmark',   action: 'veilborn_final',     label: 'Confront The Veilborn',              color: c.red  },
+  };
+  const veilStep = player.quest_id === 'wardens_fall' && player.quest_step <= 6
+    ? VEILBORN_STEPS[player.quest_step]
+    : null;
+  const showVeilNpc = veilStep && (town.id === veilStep.town);
+
   const worldEvent = _worldEventCache;
   const invaders   = _invaderCache[town.id] || [];
 
@@ -731,6 +746,7 @@ function getTownScreen(player) {
     `${c.cyan}  [V]${c.white} World Map / Travel${c.dgray} (${town.connections.length} route${town.connections.length !== 1 ? 's' : ''} from here)`,
     factionInTown ? `${c.brown}  [K]${c.white} ${factionInTown.houseName}${c.dgray} (${factionInTown.shortName})` : '',
     invaders.length > 0 ? `${c.red}  [Z]${c.white} Fight ${invaders[0].given_name}${invaders[0].title ? ', ' + invaders[0].title : ''} at the gate` : '',
+    showVeilNpc ? `${veilStep.color}  [Q]${c.white} ${veilStep.label}  ${c.dgray}⚡ Quest` : '',
     `${c.dgray}  [L]${c.gray} Logout`,
     '',
   ].filter(l => l !== undefined && l !== '');
@@ -762,6 +778,8 @@ function getTownScreen(player) {
   if (ruin) choices.splice(1, 0, { key: 'U', label: ruin.name, action: 'ruins', disabled: ruinVisited });
   if (invaders.length > 0) choices.splice(choices.findIndex(ch => ch.key === 'L'), 0,
     { key: 'Z', label: `Fight ${invaders[0].given_name}`, action: 'town_invader_fight' });
+  if (showVeilNpc) choices.splice(choices.findIndex(ch => ch.key === 'L'), 0,
+    { key: 'Q', label: veilStep.label, action: veilStep.action });
 
   return { screen: 'town', ...buildScreen(town.name, lines, choices) };
 }
@@ -1551,7 +1569,7 @@ function getBardScreen(hallOfKings) {
   return buildScreen("The Minstrel's Corner", lines, [{ key: 'L', label: 'Leave', action: 'town' }]);
 }
 
-function getNewsScreen(newsList) {
+function getNewsScreen(newsList, hunts) {
   const lines = [
     ...renderBanner('news'),
     `${c.white}  Hear ye, hear ye! The crier reads the day's events:`,
@@ -1563,6 +1581,18 @@ function getNewsScreen(newsList) {
   } else {
     newsList.slice(0, 20).forEach(n => {
       lines.push(`  ${c.gray}· ${n.message}`);
+    });
+  }
+
+  // Weekly Hunt Board
+  if (hunts && hunts.length > 0) {
+    lines.push('');
+    lines.push(`${c.yellow}  ── Weekly Hunt Board ────────────────`);
+    lines.push(`${c.dgray}  Bring down these beasts for bonus gold and experience.`);
+    lines.push('');
+    hunts.forEach((h, i) => {
+      const tierLabel = ['Common', 'Uncommon', 'Rare', 'Dangerous', 'Legendary'][i] || `Tier ${i + 1}`;
+      lines.push(`${c.gray}  ${tierLabel}: ${c.white}${h.target_name}  ${c.dgray}+${h.kill_bonus_gold.toLocaleString()} gold / +${h.kill_bonus_exp.toLocaleString()} exp per kill`);
     });
   }
 
@@ -1601,8 +1631,9 @@ function getCharacterScreen(player) {
   const al    = getAlignmentLabel(player.alignment || 0);
   const { navLine, choices } = charTabNav('1');
 
+  const activeTitle = getActiveTitleDisplay(player);
   const lines = [
-    `${c.dgray}  ${player.handle}  ${c.gray}·  ${c.cyan}${cls}  ${c.gray}·  ${c.white}Level ${c.yellow}${player.level}${player.level >= 12 ? c.red + ' ★ DRAGON SLAYER' : ''}`,
+    `${c.dgray}  ${player.handle}${activeTitle ? c.gray + ', ' + c.yellow + activeTitle : ''}  ${c.gray}·  ${c.cyan}${cls}  ${c.gray}·  ${c.white}Level ${c.yellow}${player.level}${player.level >= 12 ? c.red + ' ★ DRAGON SLAYER' : ''}`,
     `  ${navLine}`,
     divider('─', 45),
     `${c.yellow}  ── Combat ───────────────────────────`,
@@ -1663,6 +1694,17 @@ function getCharacterGearScreen(player) {
 function getCharacterRecordsScreen(player) {
   const { navLine, choices } = charTabNav('3');
   const ownedPerks = (() => { try { return JSON.parse(player.perks || '[]'); } catch { return []; } })();
+  const earnedTitles = getEarnedTitles(player);
+  const activeTitle  = getActiveTitleDisplay(player);
+
+  const titleLines = earnedTitles.length === 0
+    ? [`${c.dgray}  No titles earned yet.`]
+    : earnedTitles.map(id => {
+        const t = DEED_TITLES.find(d => d.id === id);
+        if (!t) return '';
+        const isActive = player.active_title === id;
+        return `${isActive ? c.yellow : c.gray}  ${isActive ? '✓ ' : '  '}${t.display}  ${c.dgray}${t.desc}`;
+      });
 
   const lines = [
     `${c.dgray}  ${player.handle}  ${c.gray}·  ${c.cyan}${CLASS_NAMES[player.class]}  ${c.gray}·  ${c.white}Level ${c.yellow}${player.level}`,
@@ -1673,6 +1715,11 @@ function getCharacterRecordsScreen(player) {
     player.is_legend ? `${c.yellow}  ★ LEGENDARY WARRIOR` : '',
     (player.prestige_level || 0) > 0 ? `${c.magenta}  ✦ PRESTIGE ${player.prestige_level} — ${require('./data').getPrestigeTitle(player.prestige_level)}` : '',
     '',
+    `${c.yellow}  ── Titles ───────────────────────────`,
+    activeTitle ? `${c.gray}  Displaying: ${c.yellow}${activeTitle}` : `${c.dgray}  Displaying: (none)`,
+    ...titleLines,
+    earnedTitles.length > 0 ? `${c.yellow}  [T]${c.gray} Change displayed title` : '',
+    '',
     `${c.yellow}  ── Perks ────────────────────────────`,
     ownedPerks.length === 0 ? `${c.dgray}  No perks learned yet` : '',
     ...ownedPerks.map(id => {
@@ -1681,6 +1728,7 @@ function getCharacterRecordsScreen(player) {
     }),
   ].filter(l => l !== undefined);
 
+  if (earnedTitles.length > 0) choices.push({ key: 'T', label: 'Change Title', action: 'character_titles' });
   return buildScreen('Character — Records', lines, choices);
 }
 

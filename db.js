@@ -84,6 +84,7 @@ const PLAYER_COLUMNS = new Set([
   'named_weapon_id', 'named_armor_id', 'weapon_cursed', 'armor_cursed', 'blood_oath',
   'ruins_visited', 'dungeon_clears',
   'prestige_level',
+  'earned_titles', 'active_title', 'death_count', 'flee_count',
 ]);
 
 async function updatePlayer(id, fields) {
@@ -126,7 +127,7 @@ async function getNearDeathPlayers(excludeId) {
 
 async function getAllPlayers() {
   const { rows } = await pool.query(
-    'SELECT id, handle, level, class, sex, last_seen, dead, times_won, setup_complete FROM players WHERE setup_complete = 1 ORDER BY level DESC, exp DESC'
+    'SELECT id, handle, level, class, sex, last_seen, dead, times_won, prestige_level, active_title, setup_complete FROM players WHERE setup_complete = 1 ORDER BY level DESC, exp DESC'
   );
   return rows;
 }
@@ -322,4 +323,51 @@ async function setWorldState(key, value) {
   );
 }
 
-module.exports = { pool, initDb, getPlayer, getPlayerByUsername, updatePlayer, claimNewDay, createPlayer, getAllPlayers, getPlayersInTown, getRetiredPlayersInTown, getNearDeathPlayers, getCaptivePlayers, getRecentNews, addNews, getHallOfKings, addToHallOfKings, TODAY, getBannerOverride, setBanner, deleteBanner, getAllBanners, loadBanners, getActiveNamedEnemiesForLevel, createNamedEnemy, updateNamedEnemy, getNamedEnemy, getAllUndefeatedNamedEnemies, getUndefeatedNamedEnemiesWithKills, getInvadingEnemies, getActiveWorldEvent, triggerWorldEvent, expireWorldEvents, getWorldState, setWorldState };
+// ── Weekly hunt board ─────────────────────────────────────────────────────────
+
+async function getActiveHunts() {
+  const week = Math.floor(TODAY() / 7);
+  const { rows } = await pool.query(
+    'SELECT * FROM weekly_hunts WHERE week_number = $1 ORDER BY rank ASC',
+    [week]
+  );
+  return rows;
+}
+
+async function generateWeeklyHunts(weekNumber, targets) {
+  // targets: [{ rank, target_name, kill_bonus_gold, kill_bonus_exp }]
+  for (const t of targets) {
+    await pool.query(
+      `INSERT INTO weekly_hunts (week_number, rank, target_name, kill_bonus_gold, kill_bonus_exp)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (week_number, target_name) DO NOTHING`,
+      [weekNumber, t.rank, t.target_name, t.kill_bonus_gold, t.kill_bonus_exp]
+    );
+  }
+}
+
+async function incrementHuntKill(huntId, playerId) {
+  await pool.query(
+    `INSERT INTO hunt_kills (hunt_id, player_id, kills) VALUES ($1, $2, 1)
+     ON CONFLICT (hunt_id, player_id) DO UPDATE SET kills = hunt_kills.kills + 1`,
+    [huntId, playerId]
+  );
+  await pool.query('UPDATE weekly_hunts SET total_kills = total_kills + 1 WHERE id = $1', [huntId]);
+}
+
+async function getWeeklyHuntLeaderboard(weekNumber) {
+  const { rows } = await pool.query(
+    `SELECT p.handle, p.id, SUM(hk.kills) AS total_kills
+     FROM hunt_kills hk
+     JOIN weekly_hunts wh ON wh.id = hk.hunt_id
+     JOIN players p ON p.id = hk.player_id
+     WHERE wh.week_number = $1
+     GROUP BY p.id, p.handle
+     ORDER BY total_kills DESC
+     LIMIT 10`,
+    [weekNumber]
+  );
+  return rows;
+}
+
+module.exports = { pool, initDb, getPlayer, getPlayerByUsername, updatePlayer, claimNewDay, createPlayer, getAllPlayers, getPlayersInTown, getRetiredPlayersInTown, getNearDeathPlayers, getCaptivePlayers, getRecentNews, addNews, getHallOfKings, addToHallOfKings, TODAY, getBannerOverride, setBanner, deleteBanner, getAllBanners, loadBanners, getActiveNamedEnemiesForLevel, createNamedEnemy, updateNamedEnemy, getNamedEnemy, getAllUndefeatedNamedEnemies, getUndefeatedNamedEnemiesWithKills, getInvadingEnemies, getActiveWorldEvent, triggerWorldEvent, expireWorldEvents, getWorldState, setWorldState, getActiveHunts, generateWeeklyHunts, incrementHuntKill, getWeeklyHuntLeaderboard };

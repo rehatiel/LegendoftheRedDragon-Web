@@ -523,7 +523,8 @@ function getMonster(level, index) {
     exp:      Math.floor((15 + level * 22) * tmpl.expMult),
   };
   // currentHp is set here so it's always defined — this was the NaN source
-  return { ...tmpl, ...base, maxHp: base.hp, currentHp: base.hp };
+  // level is included so XP tapering and hunt matching can reference it.
+  return { ...tmpl, ...base, maxHp: base.hp, currentHp: base.hp, level };
 }
 
 function getRandomMonster(level) {
@@ -845,6 +846,38 @@ function pickKillTitle() {
 // Cursed items are sold only at the Duskveil black market.
 // Cursed items cannot be unequipped once worn.
 const NAMED_ITEMS = {
+  // ── Hunt reward weapons (top weekly hunter) ───────────────────────────────
+  pale_wanderer_fang: {
+    type: 'weapon', name: 'Fang of the Pale Wanderer', cursed: false,
+    strength: 60, tier: 5,
+    effect: 'poison_on_hit', effectDesc: '35% chance to poison on hit',
+    lore: "The tooth of a legendary wraith, still cold to the touch.",
+  },
+  goraths_club: {
+    type: 'weapon', name: "Gorath's Bonebreaker", cursed: false,
+    strength: 95, tier: 7,
+    effect: 'stun', effectDesc: '15% chance to stun the enemy on hit',
+    lore: "The war-club of Gorath the legendary troll. Heavier than it looks.",
+  },
+  silkfangs_stinger: {
+    type: 'weapon', name: "Silkfang's Stinger", cursed: false,
+    strength: 65, tier: 5,
+    effect: 'poison_on_hit', effectDesc: '40% chance to poison; always poisons on power strike',
+    lore: "Harvested from the queen of spiders at the moment of her death.",
+  },
+  hunters_iron: {
+    type: 'weapon', name: "The Hunter's Iron", cursed: false,
+    strength: 85, tier: 6,
+    effect: 'double_strike', effectDesc: '25% chance to strike twice per attack',
+    lore: "Awarded only to the greatest hunter of the week. The weight of reputation.",
+  },
+  wardens_edge: {
+    type: 'weapon', name: "Warden's Edge", cursed: false,
+    strength: 110, tier: 8,
+    effect: 'warden_seal', effectDesc: '+30% damage; glows bright near void creatures',
+    lore: "One of the last blades forged by the Wardens. It still remembers its purpose.",
+  },
+
   // ── Named weapons ────────────────────────────────────────────────────────────
   widows_fang: {
     type: 'weapon', name: "Widow's Fang", cursed: false,
@@ -904,6 +937,52 @@ function hasPerk(player, perkId) {
   } catch { return false; }
 }
 
+// ── Weekly hunt monster pool ──────────────────────────────────────────────────
+// Monsters that can appear as weekly hunt targets, grouped by rough difficulty.
+const HUNT_MONSTER_POOL = [
+  // Tier 1 — early-game creatures
+  { name: 'Giant Rat',      rank: 1 },
+  { name: 'Cave Goblin',    rank: 1 },
+  { name: 'Zombie',         rank: 1 },
+  { name: 'Skeleton',       rank: 1 },
+  // Tier 2
+  { name: 'Orc Warrior',    rank: 2 },
+  { name: 'Ghoul',          rank: 2 },
+  { name: 'Wererat',        rank: 2 },
+  { name: 'Harpy',          rank: 2 },
+  // Tier 3
+  { name: 'Dark Elf',       rank: 3 },
+  { name: 'Werewolf',       rank: 3 },
+  { name: 'Gnoll',          rank: 3 },
+  { name: 'Forest Witch',   rank: 3 },
+  // Tier 4
+  { name: 'Cave Troll',     rank: 4 },
+  { name: 'Orc Chief',      rank: 4 },
+  { name: 'Ghast',          rank: 4 },
+  { name: 'Dark Elf Mage',  rank: 4 },
+  // Tier 5 — late-game
+  { name: 'Bandit King',    rank: 5 },
+  { name: 'Gargoyle',       rank: 5 },
+];
+
+// Hunt rewards scale with difficulty rank
+const HUNT_RANK_REWARDS = {
+  1: { kill_bonus_gold:   500, kill_bonus_exp:   250 },
+  2: { kill_bonus_gold:  1500, kill_bonus_exp:   750 },
+  3: { kill_bonus_gold:  4000, kill_bonus_exp:  2000 },
+  4: { kill_bonus_gold: 10000, kill_bonus_exp:  5000 },
+  5: { kill_bonus_gold: 25000, kill_bonus_exp: 12500 },
+};
+
+// Unique hunt weapons cycled as top-hunter prizes (week_number % length)
+const HUNT_PRIZE_ITEMS = [
+  'pale_wanderer_fang',
+  'goraths_club',
+  'silkfangs_stinger',
+  'hunters_iron',
+  'wardens_edge',
+];
+
 module.exports = {
   WEAPONS, ARMORS, RED_DRAGON, CHAMPION_DRAGONS, getChampionDragon,
   CLASS_START_HP, CLASS_START_STR, PRESTIGE_TITLES, getPrestigeTitle,
@@ -917,4 +996,5 @@ module.exports = {
   PERKS, CLASS_PERKS, getPerksForClass, hasPerk,
   NAMED_ENEMY_POOL, generateNamedEnemyName, pickKillTitle,
   NAMED_ITEMS, getNamedItemDrop,
+  HUNT_MONSTER_POOL, HUNT_RANK_REWARDS, HUNT_PRIZE_ITEMS,
 };

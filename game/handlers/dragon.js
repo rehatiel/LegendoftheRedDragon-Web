@@ -1,4 +1,5 @@
 const { pool, getPlayer, updatePlayer, addNews, setWorldState, TODAY } = require('../../db');
+const { buildTitleAward } = require('../titles');
 const { RED_DRAGON, getChampionDragon } = require('../data');
 const { resolveRound } = require('../combat');
 const { getTownScreen, getDragonScreen, renderBanner } = require('../engine');
@@ -42,11 +43,20 @@ async function dragon_fight({ action, player, req, res, pendingMessages }) {
       exp:  Number(player.exp)  + expReward,
     };
 
-    // First kill bonus: permanent Dragonslayer strength and HP
+    // First kill bonus: permanent stat boost + Dragonslayer title + Veilborn quest
     if (isFirstKill) {
       winUpdates.strength   = player.strength + 10;
       winUpdates.hit_max    = player.hit_max   + 20;
       winUpdates.hit_points = Math.min(player.hit_max + 20, player.hit_points + 20);
+
+      // Award Dragonslayer deed title
+      const titleAward = buildTitleAward(player, 'dragonslayer');
+      if (titleAward) Object.assign(winUpdates, titleAward);
+
+      // Begin the Veilborn questline (step 1 = visit Scholar Voss in Dawnmark)
+      winUpdates.quest_id   = 'wardens_fall';
+      winUpdates.quest_step = 1;
+      winUpdates.quest_data = JSON.stringify({ started: true });
     }
 
     const client = await pool.connect();
@@ -76,9 +86,14 @@ async function dragon_fight({ action, player, req, res, pendingMessages }) {
     const firstKillLines = isFirstKill ? [
       '',
       '`$  ★ DRAGONSLAYER ★',
-      '`%  The world knows your name.',
+      '`%  The world knows your name. You have earned the title: `$the Dragonslayer`%.',
       '`!  The dragon\'s power flows into you.',
       '`0  Permanent bonus: +10 Strength, +20 Max HP.',
+      '',
+      '`8  ...But something is wrong.',
+      '`8  The mountain groans. A cold wind rises from the cave floor.',
+      '`8  A scholar at the gate calls out with urgency in his voice.',
+      '`7  Return to Dawnmark — Scholar Voss has urgent news.',
     ] : [];
 
     const winsLabel = isFirstKill

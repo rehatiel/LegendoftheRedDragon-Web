@@ -93,6 +93,25 @@ const ROAD_EVENTS = [
     build(player) {
       const monster = getRandomMonster(Math.max(1, player.level - 1));
       const goldDemand = 30 + Math.floor(Math.random() * player.level * 40);
+
+      // Dragonslayer: 25% chance bandits recognise the title and scatter
+      if (player.active_title === 'dragonslayer' && Math.random() < 0.25) {
+        return {
+          title: 'Ambushed!',
+          lines: [
+            '`@A rough voice cuts through the silence: "Stand and deliver!"',
+            '`%Armed men step from the tree line — then one of them gets a better look at you.',
+            '`8"...Wait. That\'s the Dragonslayer."',
+            '`8A long silence. Then the sound of boots on mud, retreating fast.',
+            '`$The bandits scatter without another word.',
+          ],
+          choices: [{ key: 'C', label: 'Continue', param: 'bandits_fled' }],
+          type: 'bandits_fled',
+          monster: null,
+          goldDemand: 0,
+        };
+      }
+
       return {
         title: 'Ambushed!',
         lines: [

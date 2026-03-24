@@ -1,5 +1,7 @@
 // Daily reset routine for SoT
-const { addNews, getAllPlayers, getWorldState, setWorldState, getActiveWorldEvent, triggerWorldEvent, expireWorldEvents, getUndefeatedNamedEnemiesWithKills, getAllUndefeatedNamedEnemies, updateNamedEnemy, getInvadingEnemies } = require('../db');
+const { addNews, getAllPlayers, getWorldState, setWorldState, getActiveWorldEvent, triggerWorldEvent, expireWorldEvents, getUndefeatedNamedEnemiesWithKills, getAllUndefeatedNamedEnemies, updateNamedEnemy, getInvadingEnemies, getActiveHunts, generateWeeklyHunts, getWeeklyHuntLeaderboard, updatePlayer, getPlayer } = require('../db');
+const { HUNT_MONSTER_POOL, HUNT_RANK_REWARDS, HUNT_PRIZE_ITEMS, NAMED_ITEMS } = require('./data');
+const { buildTitleAward } = require('./titles');
 const { getEventDef, pickNextEvent, EVENT_DURATION_DAYS } = require('./world_events');
 const { expForNextLevel, LEVEL_UP_GAINS, CLASS_NAMES } = require('./data');
 const { parseWounds, hasSerious, hasCritical, getLocationPenalties } = require('./wounds');
@@ -89,6 +91,19 @@ async function runNewDay(player, dryRun = false) {
       messages.push(`\`@You lost a level!\`% You are now level \`$${updates.level}\`%.`);
     }
     if (!player.near_death) await news(`\`@${player.handle}\`% was reincarnated from the dead.`);
+
+    // Track death count; award Undying title at 3+ deaths
+    const newDeathCount = (player.death_count || 0) + 1;
+    updates.death_count = newDeathCount;
+    if (newDeathCount >= 3) {
+      const titleAward = buildTitleAward(player, 'undying');
+      if (titleAward) {
+        Object.assign(updates, titleAward);
+        messages.push('`#You have returned from death so many times that the realm itself has taken notice.');
+        messages.push('`#You have earned the title: `$the Undying`#.');
+        if (!dryRun) await news(`\`#${player.handle}\`% has been reborn so many times they are now known as \`$the Undying\`#.`);
+      }
+    }
   } else if (!player.near_death) {
     // HP recovery: inn = 30%, no inn = 15%; grievous wounds halve inn recovery
     const wounds = parseWounds(player);
@@ -481,7 +496,46 @@ async function runWorldDay() {
     }
   }
 
-  // 5. Dragon spread: post escalating warnings if unchallenged
+  // 5. Weekly hunt board: generate new hunts and announce last week's winner
+  const week = Math.floor(today / 7);
+  const prevWeek = week - 1;
+  const huntsThisWeek = await getActiveHunts();
+  if (huntsThisWeek.length === 0) {
+    // Announce last week's top hunter and award prize
+    const lastWeekBoard = prevWeek >= 0 ? await getWeeklyHuntLeaderboard(prevWeek) : [];
+    if (lastWeekBoard.length > 0) {
+      const winner = lastWeekBoard[0];
+      const prizeId = HUNT_PRIZE_ITEMS[prevWeek % HUNT_PRIZE_ITEMS.length];
+      const prizeItem = NAMED_ITEMS[prizeId];
+      // Award prize to winner
+      const winnerPlayer = await getPlayer(winner.id);
+      if (winnerPlayer && prizeItem) {
+        const titleAward = buildTitleAward(winnerPlayer, 'hunter') || {};
+        const weaponUpdates = !winnerPlayer.named_weapon_id ? {
+          named_weapon_id: prizeId,
+          strength: winnerPlayer.strength + prizeItem.strength,
+        } : {};
+        await updatePlayer(winner.id, { ...titleAward, ...weaponUpdates });
+        await addNews(`\`$★ HUNT BOARD: \`!${winner.handle}\`$ was this week's top hunter with ${winner.total_kills} kills!` +
+          (prizeItem ? ` They receive \`!${prizeItem.name}\`$!` : ''));
+      }
+    }
+
+    // Generate 5 new hunts: one per rank, picking randomly from each tier
+    const tierPicks = [1, 2, 3, 4, 5].map(rank => {
+      const pool = HUNT_MONSTER_POOL.filter(m => m.rank === rank);
+      if (!pool.length) return null;
+      const pick = pool[Math.floor(Math.random() * pool.length)];
+      const rewards = HUNT_RANK_REWARDS[rank] || HUNT_RANK_REWARDS[1];
+      return { rank, target_name: pick.name, ...rewards };
+    }).filter(Boolean);
+
+    await generateWeeklyHunts(week, tierPicks);
+    const names = tierPicks.map(t => t.target_name).join(', ');
+    await addNews(`\`6★ NEW HUNT BOARD: This week's targets — \`%${names}\`6. Kill them for gold and exp bonuses!`);
+  }
+
+  // 6. Dragon spread: post escalating warnings if unchallenged
   const lastKillDay = parseInt(await getWorldState('last_dragon_kill') || '0');
   if (lastKillDay > 0) {
     const daysSince = today - lastKillDay;

@@ -234,6 +234,12 @@ async function road_encounter_resolve({ player, param, req, res, pendingMessages
     ]});
   }
 
+  // ── Bandits fled (Dragonslayer title)
+  if (type === 'bandits_fled') {
+    delete req.session.roadEncounter;
+    return walk_continue({ player, param: null, req, res, pendingMessages });
+  }
+
   // ── Road bandits: fight or pay
   if (type === 'road_bandits') {
     delete req.session.roadEncounter;

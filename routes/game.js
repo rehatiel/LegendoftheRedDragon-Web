@@ -60,6 +60,8 @@ const HANDLERS = {
   ...require('../game/handlers/ruins'),
   ...require('../game/handlers/world_events'),
   ...require('../game/handlers/prestige'),
+  ...require('../game/handlers/titles'),
+  ...require('../game/handlers/veilborn'),
 };
 
 // Auth guard

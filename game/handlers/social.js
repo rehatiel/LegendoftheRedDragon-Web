@@ -238,7 +238,9 @@ async function social_duskveil({ player, req, res, pendingMessages }) {
 }
 
 async function social_duskveil_intel({ player, req, res, pendingMessages }) {
-  if (Number(player.gold) < 150)
+  const isShadow = player.active_title === 'shadow';
+  const intelCost = isShadow ? 75 : 150;
+  if (Number(player.gold) < intelCost)
     return res.json({ ...getSocialDuskveilScreen(player), pendingMessages: ['`@Not enough gold.'] });
   const hints = ['bandits', 'monster', 'safe', 'encounter'];
   const hint = hints[Math.floor(Math.random() * hints.length)];
@@ -248,25 +250,27 @@ async function social_duskveil_intel({ player, req, res, pendingMessages }) {
     safe:      '`#"The roads are quiet just now. Good time to travel."',
     encounter: '`#"You\'ll meet someone on the road. Friend or foe — unclear."',
   };
-  await updatePlayer(player.id, { gold: Number(player.gold) - 150, road_hint: hint });
+  await updatePlayer(player.id, { gold: Number(player.gold) - intelCost, road_hint: hint });
   player = await getPlayer(player.id);
-  return res.json({ ...getSocialDuskveilScreen(player), pendingMessages: [
-    '`8The masked woman leans close.',
-    hintDesc[hint],
-    '`8She pockets the coin and fades back into the crowd.',
-  ]});
+  const msgs = isShadow
+    ? ['`8The masked woman glances at your shadow — then gives a slow nod of recognition.', hintDesc[hint], '`8Half price. Professional courtesy.']
+    : ['`8The masked woman leans close.', hintDesc[hint], '`8She pockets the coin and fades back into the crowd.'];
+  return res.json({ ...getSocialDuskveilScreen(player), pendingMessages: msgs });
 }
 
 async function social_duskveil_guide({ player, req, res, pendingMessages }) {
-  if (Number(player.gold) < 200)
+  const isShadow = player.active_title === 'shadow';
+  const guideCost = isShadow ? 100 : 200;
+  if (Number(player.gold) < guideCost)
     return res.json({ ...getSocialDuskveilScreen(player), pendingMessages: ['`@Not enough gold.'] });
-  await updatePlayer(player.id, { gold: Number(player.gold) - 200, guide_hired: 1 });
+  await updatePlayer(player.id, { gold: Number(player.gold) - guideCost, guide_hired: 1 });
   player = await getPlayer(player.id);
   return res.json({ ...getSocialDuskveilScreen(player), pendingMessages: [
     '`8A silent figure in a grey cloak nods once.',
     '`8"I know the roads. I\'ll keep you off the dangerous stretches."',
+    isShadow ? '`#Half price — your reputation precedes you.' : '',
     '`#Road encounter chance halved for your next journey.',
-  ]});
+  ].filter(Boolean)});
 }
 
 async function social_duskveil_market({ player, req, res, pendingMessages }) {

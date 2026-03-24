@@ -1,4 +1,4 @@
-const { getPlayer, updatePlayer, addNews, getHallOfKings, getRecentNews, getRetiredPlayersInTown, getActiveWorldEvent } = require('../../db');
+const { getPlayer, updatePlayer, addNews, getHallOfKings, getRecentNews, getRetiredPlayersInTown, getActiveWorldEvent, getActiveHunts, getAllPlayers } = require('../../db');
 const { WEAPONS, ARMORS, TOWNS, SHOP_OWNERS, getWeaponByNum, getArmorByNum, PERKS, getPerksForClass, hasPerk } = require('../data');
 const { checkLevelUp } = require('../newday');
 const { getEventDef } = require('../world_events');
@@ -89,20 +89,24 @@ async function inn_wake({ player, req, res, pendingMessages }) {
 
 async function inn_healer({ player, req, res, pendingMessages }) {
   const wounds = parseWounds(player);
-  const woundCost = healerWoundCost(wounds, player.level);
+  const mult = player.active_title === 'undying' ? 2 : 1;
+  const woundCost = healerWoundCost(wounds, player.level) * mult;
   const infectionCost = player.infection_type
-    ? healerInfectionCost(player.infection_type, player.infection_stage, player.level)
+    ? healerInfectionCost(player.infection_type, player.infection_stage, player.level) * mult
     : 0;
-  return res.json({ ...getInnHealerScreen(player, wounds, woundCost, infectionCost), pendingMessages });
+  const msgs = [...pendingMessages];
+  if (mult > 1) msgs.push('`@The healer eyes you with unease. "You keep coming back from the dead. I charge double."');
+  return res.json({ ...getInnHealerScreen(player, wounds, woundCost, infectionCost), pendingMessages: msgs });
 }
 
 async function inn_healer_wounds({ player, req, res, pendingMessages }) {
   const wounds = parseWounds(player);
-  const cost = healerWoundCost(wounds, player.level);
+  const mult = player.active_title === 'undying' ? 2 : 1;
+  const cost = healerWoundCost(wounds, player.level) * mult;
   if (!wounds.length)
     return res.json({ ...getInnHealerScreen(player, wounds, 0, 0), pendingMessages: ['`7You have no wounds to treat.'] });
   if (Number(player.gold) < cost) {
-    const infCost = player.infection_type ? healerInfectionCost(player.infection_type, player.infection_stage, player.level) : 0;
+    const infCost = player.infection_type ? healerInfectionCost(player.infection_type, player.infection_stage, player.level) * mult : 0;
     return res.json({ ...getInnHealerScreen(player, wounds, cost, infCost), pendingMessages: [`\`@Not enough gold! Treating wounds costs ${cost.toLocaleString()} gold.`] });
   }
   await updatePlayer(player.id, { gold: Number(player.gold) - cost, wounds: '[]' });
@@ -116,10 +120,11 @@ async function inn_healer_infection({ player, req, res, pendingMessages }) {
     const sleeperCount = await getRetiredPlayersInTown(player.current_town || 'dawnmark');
     return res.json({ ...getInnScreen(player, sleeperCount), pendingMessages: ['`7There is nothing to treat.'] });
   }
-  const cost = healerInfectionCost(player.infection_type, player.infection_stage, player.level);
+  const mult = player.active_title === 'undying' ? 2 : 1;
+  const cost = healerInfectionCost(player.infection_type, player.infection_stage, player.level) * mult;
   if (Number(player.gold) < cost) {
     const wounds = parseWounds(player);
-    const wCost = healerWoundCost(wounds, player.level);
+    const wCost = healerWoundCost(wounds, player.level) * mult;
     return res.json({ ...getInnHealerScreen(player, wounds, wCost, cost), pendingMessages: [`\`@Not enough gold! Treating the infection costs ${cost.toLocaleString()} gold.`] });
   }
   await updatePlayer(player.id, {
@@ -472,6 +477,31 @@ async function garden_kiss({ player, req, res, pendingMessages }) {
   ]});
 }
 
+// ── PLAYERS LIST ─────────────────────────────────────────────────────────────
+
+async function players({ player, req, res, pendingMessages }) {
+  const all = await getAllPlayers();
+  const c = { yellow: '`$', white: '`%', gray: '`7', dgray: '`8', red: '`@', cyan: '`!', green: '`0', magenta: '`#' };
+  const lines = [
+    `${c.dgray}  ══════════════════════════════════════`,
+    `${c.yellow}        ADVENTURERS OF THE REALM`,
+    `${c.dgray}  ══════════════════════════════════════`,
+    '',
+  ];
+  if (all.length === 0) {
+    lines.push(`${c.dgray}  No other adventurers found.`);
+  } else {
+    all.forEach(p => {
+      const titlePart = p.active_title ? `${c.dgray}, ${c.yellow}${p.active_title}` : '';
+      const deadPart  = p.dead         ? ` ${c.red}[DEAD]` : '';
+      lines.push(`${c.gray}  ${c.white}${p.handle}${titlePart}${c.gray}  Lv ${c.yellow}${p.level}${deadPart}`);
+    });
+  }
+  lines.push('');
+  lines.push(`${c.yellow}  [L]${c.white} Return to Town`);
+  return res.json({ screen: 'players', title: 'Other Players', lines, choices: [{ key: 'L', label: 'Return', action: 'town' }], pendingMessages });
+}
+
 // ── BARD / NEWS / CHARACTER / CRIER ───────────────────────────────────────────
 
 async function bard({ player, req, res, pendingMessages }) {
@@ -479,7 +509,8 @@ async function bard({ player, req, res, pendingMessages }) {
 }
 
 async function news({ player, req, res, pendingMessages }) {
-  return res.json({ ...getNewsScreen(await getRecentNews(20)), pendingMessages });
+  const [newsList, hunts] = await Promise.all([getRecentNews(20), getActiveHunts()]);
+  return res.json({ ...getNewsScreen(newsList, hunts), pendingMessages });
 }
 
 async function character({ player, req, res, pendingMessages }) {
@@ -722,6 +753,7 @@ module.exports = {
   armor_shop, buy_armor,
   shop_steal_armor: shop_steal,
   garden, garden_female, garden_flower, garden_compliment, garden_kiss,
+  players,
   bard, news, character, character_gear, character_records, character_factions, crier, post_crier,
   herbalist,
   herbalist_wound,

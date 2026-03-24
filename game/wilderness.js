@@ -73,6 +73,7 @@ async function getWildernessMonster(townId, level, prestigeLevel = 0) {
       hp, maxHp: hp, currentHp: hp,
       gold:     Math.floor(baseGold * (base.goldMult ?? 1.0) * 1.20),
       exp:      Math.floor(baseExp  * (base.expMult  ?? 1.0) * 1.20),
+      level:    inf.level,
       meet:     `A \`@${base.name}\`% has been driven here from the distant wilds — fiercer than usual.`,
       death:    base.death,
     };
@@ -90,6 +91,7 @@ async function getWildernessMonster(townId, level, prestigeLevel = 0) {
     hp, maxHp: hp, currentHp: hp,
     gold:      Math.floor(baseGold * (t.goldMult ?? 1.0)),
     exp:       Math.floor(baseExp  * (t.expMult  ?? 1.0)),
+    level,
     meet:      t.meet,
     death:     t.death,
   };

@@ -2,6 +2,18 @@
 const { TOWNS } = require('./data');
 
 const QUESTS = {
+  wardens_fall: {
+    name: "The Warden's Fall",
+    desc: "You slew the dragon — but it was the last Warden, keeping something sealed. Now it is free.",
+    steps: [
+      'Return to Dawnmark. Scholar Voss has urgent news.',
+      'Travel to Ironhold — the shadow armies have already reached the military front.',
+      'Travel to Stormwatch — the Archivist holds records of what was sealed.',
+      'Travel to Graveport — the last Warden\'s journal is aboard a ghost ship.',
+      'Travel to Ashenfall — forge the Warden\'s Seal at the Ancient Forge.',
+      'Return to Dawnmark — the Veilborn has arrived. Make your stand.',
+    ],
+  },
   widow_revenge: {
     name: "The Widow's Revenge",
     desc: 'A grieving widow begs you to avenge her husband.',

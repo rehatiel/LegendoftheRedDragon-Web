@@ -1,5 +1,6 @@
-const { getPlayer, updatePlayer, getNearDeathPlayers, addNews, getActiveNamedEnemiesForLevel, createNamedEnemy, updateNamedEnemy, getNamedEnemy, getInvadingEnemies, getWorldState, setWorldState } = require('../../db');
+const { getPlayer, updatePlayer, getNearDeathPlayers, addNews, getActiveNamedEnemiesForLevel, createNamedEnemy, updateNamedEnemy, getNamedEnemy, getInvadingEnemies, getWorldState, setWorldState, getActiveHunts, incrementHuntKill } = require('../../db');
 const { getRandomMonster, getMonster, getWeaponByNum, getArmorByNum, hasPerk, generateNamedEnemyName, pickKillTitle, NAMED_ITEMS, getNamedItemDrop } = require('../data');
+const { buildTitleAward } = require('../titles');
 const { resolveRound } = require('../combat');
 const { checkLevelUp } = require('../newday');
 const { FOREST_EVENTS } = require('../forest_events');
@@ -621,6 +622,19 @@ async function forest_combat({ action, player, req, res, pendingMessages }) {
 
   if (fled) {
     req.session.combat = null;
+
+    // ── Flee tracking: Shadow title ───────────────────────────────────────────
+    const newFleeCount  = (player.flee_count || 0) + 1;
+    const fleeUpdates   = { flee_count: newFleeCount };
+    const shadowAward   = newFleeCount >= 20 ? buildTitleAward(player, 'shadow') : null;
+    if (shadowAward) Object.assign(fleeUpdates, shadowAward);
+    await updatePlayer(player.id, fleeUpdates);
+    player = await getPlayer(player.id);
+    if (shadowAward) {
+      log.push({ text: '`8You slip away like smoke on the wind. The forest grants you a new name: `7the Shadow`8.' });
+      await addNews(`\`8${player.handle}\`% has become one with the darkness — now known as \`7the Shadow\`8.`);
+    }
+
     if (req.session.dungeon) {
       req.session.dungeon = null;
       req.session.wildernessMode = null;
@@ -782,6 +796,16 @@ async function forest_combat({ action, player, req, res, pendingMessages }) {
       killExp  = Math.floor(killExp  * 1.50);
     }
 
+    // XP tapering: smooth curve when player is 3+ levels above the monster.
+    // Pushes players to explore higher-level zones rather than farming lower ones.
+    // Floor of 15%; exponential curve so the drop-off feels natural, not punishing.
+    const monLvl  = monster.level || player.level;
+    const lvlDiff = player.level - monLvl;
+    if (lvlDiff >= 3) {
+      const factor = Math.max(0.15, Math.pow(0.65, lvlDiff - 2));
+      killExp = Math.floor(killExp * factor);
+    }
+
     await updatePlayer(player.id, { gold: Number(player.gold) + killGold, exp: Number(player.exp) + killExp, ...repUpdates });
     player = await getPlayer(player.id);
 
@@ -882,6 +906,36 @@ async function forest_combat({ action, player, req, res, pendingMessages }) {
         log.push({ text: `\`!  Effect: ${drop.effectDesc}` });
         log.push({ text: `\`0  It binds to you — already active. Check [C]haracter to see it.` });
       }
+    }
+
+    // ── Weekly hunt board contribution ────────────────────────────────────────
+    // Check if this monster is a hunt target; award per-kill bonus if so.
+    // Skipped for named enemies (they're not in the hunt pool by name).
+    if (!monster.isNamed) {
+      try {
+        const activeHunts = await getActiveHunts();
+        const matchHunt   = activeHunts.find(h => h.target_name === monster.name);
+        if (matchHunt) {
+          await incrementHuntKill(matchHunt.id, player.id);
+          await updatePlayer(player.id, {
+            gold: Number(player.gold) + matchHunt.kill_bonus_gold,
+            exp:  Number(player.exp)  + matchHunt.kill_bonus_exp,
+          });
+          player = await getPlayer(player.id);
+          log.push({ text: `\`$★ HUNT BOARD: ${monster.name} is a this week's target! +${matchHunt.kill_bonus_gold.toLocaleString()} gold, +${matchHunt.kill_bonus_exp.toLocaleString()} exp.` });
+        }
+      } catch { /* non-critical — don't break combat on DB error */ }
+    }
+
+    // ── Veilborn quest step 4: ghost ship captain is a regular monster fight ──
+    if (player.quest_id === 'wardens_fall' && player.quest_step === 4 && monster.isVeilbornCaptain) {
+      await updatePlayer(player.id, {
+        quest_step: 5,
+        quest_data: JSON.stringify({ target: 'ashenfall', journal: true }),
+      });
+      player = await getPlayer(player.id);
+      log.push({ text: '`!The Pale Captain dissolves into smoke. A waterlogged journal tumbles from the ether...' });
+      log.push({ text: '`$Quest: The Warden\'s Fall — "Travel to the Ancient Forge in Ashenfall."' });
     }
 
     const levelUp = checkLevelUp(player);
