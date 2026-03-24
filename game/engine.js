@@ -783,7 +783,7 @@ function getTownScreen(player) {
     { key: 'Z', label: `Fight ${invaders[0].given_name}`, action: 'town_invader_fight' });
   if (showVeilNpc) choices.splice(choices.findIndex(ch => ch.key === 'L'), 0,
     { key: 'Q', label: veilStep.label, action: veilStep.action });
-  if (townId === 'silverkeep' || townId === 'ironhold') choices.splice(choices.findIndex(ch => ch.key === 'L'), 0,
+  if (town.id === 'silverkeep' || town.id === 'ironhold') choices.splice(choices.findIndex(ch => ch.key === 'L'), 0,
     { key: '0', label: 'The Arena', action: 'arena_lobby' });
 
   return { screen: 'town', ...buildScreen(town.name, lines, choices) };
