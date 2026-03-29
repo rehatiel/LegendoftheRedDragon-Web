@@ -5,6 +5,7 @@ const {
   createArenaChallenge, getPendingChallengesForPlayer, getArenaChallenge, updateArenaChallenge,
   placeBet, resolveArenaBets, getOpenArenaChallenge,
   createPvpSession,
+  getNpcMemory, saveNpcMemory, getNpcWorldContext,
 } = require('../../db');
 const { getRandomMonster, TOWNS } = require('../data');
 const { resolvePvP, resolvePvPRound } = require('../combat');
@@ -19,6 +20,7 @@ const { pickEncounter, RESOLVERS } = require('../tavern_events');
 const { pushToast } = require('../sse');
 const { checkLevelUp } = require('../newday');
 const { buildTitleAward } = require('../titles');
+const { recordVisit } = require('../npc');
 
 const ARENA_TOWNS = new Set(['silverkeep', 'ironhold']);
 
@@ -28,7 +30,7 @@ function townPlayers(player) {
 }
 
 // Helper: build full tavern screen with online/bounty context
-async function tavernScreen(player) {
+async function tavernScreen(player, barkeepMem = null, worldCtx = null) {
   const [others, online, bounties] = await Promise.all([
     townPlayers(player),
     getOnlinePlayers(player.id),
@@ -36,11 +38,12 @@ async function tavernScreen(player) {
   ]);
   const onlineIds = online.map(p => p.id);
   const bountyTargetIds = [...new Set(bounties.map(b => b.target_id))];
-  return getTavernScreen(player, others, onlineIds, bountyTargetIds);
+  return getTavernScreen(player, others, onlineIds, bountyTargetIds, barkeepMem, worldCtx);
 }
 
 async function tavern({ player, req, res, pendingMessages }) {
   const today = Math.floor(Date.now() / 86400000);
+  const townId = player.current_town || 'dawnmark';
 
   const isWidowmaker = player.active_title === 'widowmaker';
   const encounterChance = isWidowmaker ? 0.10 : 0.40;
@@ -64,6 +67,18 @@ async function tavern({ player, req, res, pendingMessages }) {
     msgs.push(`\`!Hrok slides a note across the bar: "Got ${unread} message${unread > 1 ? 's' : ''} for ya."`);
   }
 
+  // Fetch barkeep NPC memory + world context for relationship-aware greeting
+  let barkeepMem = null;
+  let worldCtx = null;
+  try {
+    [barkeepMem, worldCtx] = await Promise.all([
+      getNpcMemory(`barkeep_${townId}`, player.id),
+      getNpcWorldContext(),
+    ]);
+    barkeepMem = recordVisit(barkeepMem);
+    await saveNpcMemory(`barkeep_${townId}`, player.id, barkeepMem);
+  } catch { /* non-critical */ }
+
   // Secret event check
   try {
     const { checkSecrets } = require('../secrets');
@@ -73,11 +88,11 @@ async function tavern({ player, req, res, pendingMessages }) {
         await updatePlayer(player.id, { hit_points: Math.max(1, player.hit_points - secret.damage) });
         player = await getPlayer(player.id);
       }
-      return res.json({ ...(await tavernScreen(player)), pendingMessages: [...msgs, ...secret.lines] });
+      return res.json({ ...(await tavernScreen(player, barkeepMem, worldCtx)), pendingMessages: [...msgs, ...secret.lines] });
     }
   } catch { /* non-critical */ }
 
-  return res.json({ ...(await tavernScreen(player)), pendingMessages: msgs });
+  return res.json({ ...(await tavernScreen(player, barkeepMem, worldCtx)), pendingMessages: msgs });
 }
 
 async function tavern_encounter({ player, param, req, res, pendingMessages }) {

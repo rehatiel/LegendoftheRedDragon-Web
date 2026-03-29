@@ -2093,17 +2093,194 @@ async function gdSaveTown(id, endpoint, statusSel, btn) {
   }
 }
 
-async function qNewQuest() {
-  const id = prompt('Quest ID (snake_case, unique):');
-  if (!id) return;
-  const name = prompt('Quest Name:');
-  if (!name) return;
-  const desc = prompt('Short description:') || '';
-  const r = await api('POST', '/quests', { id: id.trim(), name: name.trim(), description: desc.trim() });
-  if (!r.ok) { qStatus('Error creating quest (ID already exists?).', false); return; }
+function qNewQuest() {
+  qSelectedId = null;
+  qRenderList();
+  const col = document.getElementById('q-edit-col');
+
+  const trigTypeOpts = ['','tavern_encounter','event','auto','manual']
+    .map(t => `<option value="${t}">${t || '— none —'}</option>`).join('');
+
+  const stepTypeOpts = STEP_TYPES.map(t => `<option value="${t}">${t}</option>`).join('');
+
+  col.innerHTML = `
+    <h3 style="margin:0 0 18px;color:#FFFF55;font-size:15px">New Quest</h3>
+
+    <div style="display:grid;grid-template-columns:110px 1fr;gap:10px 16px;align-items:start;margin-bottom:20px">
+
+      <label style="color:#555;font-size:11px;padding-top:7px">Quest ID</label>
+      <div>
+        <input id="qw-id" class="q-input" placeholder="e.g. the_lost_merchant" style="width:100%;box-sizing:border-box">
+        <div style="font-size:11px;color:#333;margin-top:3px">snake_case, must be unique — used in save data and code</div>
+      </div>
+
+      <label style="color:#555;font-size:11px;padding-top:7px">Name</label>
+      <input id="qw-name" class="q-input" placeholder="e.g. The Lost Merchant" style="width:100%;box-sizing:border-box">
+
+      <label style="color:#555;font-size:11px;padding-top:7px">Description</label>
+      <textarea id="qw-desc" class="q-textarea" placeholder="Brief flavour description shown to the player"></textarea>
+
+    </div>
+
+    <div style="border-top:1px solid #002222;padding-top:14px;margin-bottom:20px">
+      <div style="color:#888;font-size:12px;margin-bottom:12px">Quest Setup</div>
+      <div style="display:grid;grid-template-columns:110px 1fr;gap:10px 16px;align-items:start">
+
+        <label style="color:#555;font-size:11px;padding-top:7px">Min Level</label>
+        <input id="qw-minlevel" class="q-input" type="number" value="1" style="width:70px">
+
+        <label style="color:#555;font-size:11px;padding-top:5px">Active</label>
+        <input type="checkbox" id="qw-active" checked style="margin-top:5px">
+
+        <label style="color:#555;font-size:11px;padding-top:5px">Repeatable</label>
+        <input type="checkbox" id="qw-repeatable" style="margin-top:5px">
+
+        <label style="color:#555;font-size:11px;padding-top:7px">Trigger Type</label>
+        <div>
+          <select id="qw-trigtype" class="q-select" onchange="qWizTrigTypeChange()" style="width:200px">${trigTypeOpts}</select>
+          <div id="qw-trigtype-hint" style="font-size:11px;color:#555;margin-top:4px"></div>
+        </div>
+
+        <label style="color:#555;font-size:11px;padding-top:7px">Trigger Ref</label>
+        <div id="qw-trigref-wrap">
+          <input id="qw-trigref" class="q-input" placeholder="trigger ref" style="width:100%;box-sizing:border-box">
+        </div>
+
+      </div>
+    </div>
+
+    <div style="border-top:1px solid #002222;padding-top:14px;margin-bottom:18px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <span style="color:#888;font-size:13px">First Step</span>
+        <span style="color:#333;font-size:11px">— add more after saving</span>
+      </div>
+      <div style="background:#0a0f0f;border:1px solid #001a1a;padding:12px">
+        <div class="q-field-row">
+          <span class="q-field-label">Type</span>
+          <select id="qw-step-type" class="q-select" onchange="qWizStepTypeChange()">${stepTypeOpts}</select>
+        </div>
+        <div class="q-field-row">
+          <span class="q-field-label">Display text</span>
+          <textarea id="qw-step-text" class="q-textarea" style="height:50px" placeholder="Text shown to the player — leave blank to add steps manually after saving"></textarea>
+        </div>
+        <div id="qw-step-params"></div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;align-items:center">
+      <button class="btn btn-green" onclick="qCreateFromWizard()">Create Quest</button>
+      <button class="btn btn-gray"  onclick="qCancelWizard()">Cancel</button>
+      <span id="qw-err" style="color:#ff5555;font-size:12px"></span>
+    </div>
+  `;
+
+  qWizStepTypeChange();
+}
+
+const QW_TRIG_HINTS = {
+  tavern_encounter: 'Fires when a specific tavern encounter triggers — set Trigger Ref to the encounter id',
+  event:            'Fires via a named in-game event (e.g. picking up the cursed blade)',
+  auto:             'Starts automatically when the player first meets the conditions',
+  manual:           'Started explicitly by the game engine at a fixed story beat',
+};
+
+function qWizTrigTypeChange() {
+  const trigType = document.getElementById('qw-trigtype')?.value || '';
+  const hintEl   = document.getElementById('qw-trigtype-hint');
+  const wrap     = document.getElementById('qw-trigref-wrap');
+  if (hintEl) hintEl.textContent = QW_TRIG_HINTS[trigType] || '';
+  if (!wrap) return;
+  const known = ADMIN_TRIG_REFS[trigType];
+  if (known) {
+    wrap.innerHTML = `<select id="qw-trigref" class="q-select" style="width:100%">
+      <option value="">— none —</option>
+      ${known.map(id => `<option value="${escHtml(id)}">${escHtml(id)}</option>`).join('')}
+    </select>`;
+  } else {
+    wrap.innerHTML = `<input id="qw-trigref" class="q-input" placeholder="trigger ref" style="width:100%;box-sizing:border-box">`;
+  }
+}
+
+function qWizStepTypeChange() {
+  const type      = document.getElementById('qw-step-type')?.value || 'travel';
+  const paramsDiv = document.getElementById('qw-step-params');
+  if (!paramsDiv) return;
+  let html = '';
+  if (type === 'travel') {
+    html = `<div class="q-field-row"><span class="q-field-label">Town</span>${qTownSelect('qwsp-town_id', '')}</div>`;
+  } else if (type === 'npc_talk') {
+    html = `<div class="q-field-row"><span class="q-field-label">NPC</span>${qNpcInput('qwsp-npc_id', '', 'wiz-npc')}</div>
+            <div class="q-field-row"><span class="q-field-label">Town</span>${qTownSelect('qwsp-town_id', '')}</div>`;
+  } else if (type === 'kill_boss') {
+    html = `<div class="q-field-row"><span class="q-field-label">Boss</span>${qBossInput('qwsp-boss_id', '', 'wiz-boss')}</div>
+            <div class="q-field-row"><span class="q-field-label">Town</span>${qTownSelect('qwsp-town_id', '')}</div>`;
+  } else if (type === 'kill_named') {
+    html = `<div style="font-size:11px;color:#555;padding:4px 0">Completes when the player kills any named enemy from the named_enemies table.</div>`;
+  } else if (type === 'event_trigger') {
+    html = `<div class="q-field-row"><span class="q-field-label">Event ID</span><input class="q-input qwsp-event_id" placeholder="event id" style="flex:1"></div>`;
+  } else if (type === 'choice') {
+    html = `<div class="q-field-row"><span class="q-field-label">Prompt</span><textarea class="q-textarea qwsp-prompt" style="height:44px" placeholder="Choice prompt shown to the player"></textarea></div>
+            <div style="font-size:11px;color:#555;padding:4px 0">Choice options can be added after saving.</div>`;
+  }
+  paramsDiv.innerHTML = html;
+}
+
+function qCancelWizard() {
+  document.getElementById('q-edit-col').innerHTML = '';
+}
+
+async function qCreateFromWizard() {
+  const id   = (document.getElementById('qw-id')?.value   || '').trim();
+  const name = (document.getElementById('qw-name')?.value || '').trim();
+  const desc = (document.getElementById('qw-desc')?.value || '').trim();
+  const errEl = document.getElementById('qw-err');
+
+  if (!id)   { errEl.textContent = 'Quest ID is required.'; return; }
+  if (!name) { errEl.textContent = 'Name is required.'; return; }
+  if (!/^[a-z0-9_]+$/.test(id)) { errEl.textContent = 'Quest ID must be snake_case (lowercase letters, digits, underscores only).'; return; }
+  errEl.textContent = '';
+
+  const questBody = {
+    id,
+    name,
+    description:  desc,
+    min_level:    Number(document.getElementById('qw-minlevel')?.value) || 1,
+    active:       document.getElementById('qw-active')?.checked ?? true,
+    repeatable:   document.getElementById('qw-repeatable')?.checked ?? false,
+    trigger_type: document.getElementById('qw-trigtype')?.value || null,
+    trigger_ref:  (document.getElementById('qw-trigref')?.value || '').trim() || null,
+  };
+
+  const r = await api('POST', '/quests', questBody);
+  if (!r.ok) {
+    const data = await r.json().catch(() => ({}));
+    errEl.textContent = data.error || 'Error creating quest — ID may already exist.';
+    return;
+  }
+
+  // Create first step if display text was provided
+  const stepText = (document.getElementById('qw-step-text')?.value || '').trim();
+  if (stepText) {
+    const stepType = document.getElementById('qw-step-type')?.value || 'travel';
+    const params = {};
+    const townEl   = document.querySelector('.qwsp-town_id');
+    const npcEl    = document.querySelector('.qwsp-npc_id');
+    const bossEl   = document.querySelector('.qwsp-boss_id');
+    const evEl     = document.querySelector('.qwsp-event_id');
+    const promptEl = document.querySelector('.qwsp-prompt');
+    if (townEl?.value.trim())   params.town_id  = townEl.value.trim();
+    if (npcEl?.value.trim())    params.npc_id   = npcEl.value.trim();
+    if (bossEl?.value.trim())   params.boss_id  = bossEl.value.trim();
+    if (evEl?.value.trim())     params.event_id = evEl.value.trim();
+    if (promptEl?.value.trim()) params.prompt   = promptEl.value.trim();
+    await api('POST', `/quests/${id}/steps`, {
+      step_order: 1, type: stepType, display_text: stepText, params, effects: {},
+    });
+  }
+
   qStatus('Quest created.');
   await qLoad();
-  qEditQuest(id.trim());
+  qEditQuest(id);
 }
 
 // ═══════════════════════════════════════════════════════════

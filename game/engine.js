@@ -1866,14 +1866,50 @@ function getTrainingScreen(player) {
   ]);
 }
 
-function getTavernScreen(player, otherPlayers, onlineIds, bountyTargetIds) {
+function getTavernScreen(player, otherPlayers, onlineIds, bountyTargetIds, barkeepMem = null, worldCtx = null) {
   const onlineSet = new Set(onlineIds || []);
   const bountySet = new Set(bountyTargetIds || []);
 
+  // Barkeep greeting — relationship-aware
+  const visits = barkeepMem ? (barkeepMem.visit_count || 0) : 0;
+  let hrokGreeting;
+  if (visits >= 30) {
+    hrokGreeting = `${c.brown}  Hrok slides you a drink before you say a word. ${c.white}"${player.handle}. Already poured."`;
+  } else if (visits >= 15) {
+    hrokGreeting = `${c.brown}  Hrok grins when you walk in. ${c.white}"${player.handle}! Thought you'd forgotten us. The usual?"`;
+  } else if (visits >= 5) {
+    hrokGreeting = `${c.brown}  Hrok has your drink half-poured before you sit. ${c.white}"${player.handle}. Same as always?"`;
+  } else if (visits >= 1) {
+    hrokGreeting = `${c.brown}  Hrok nods when you come in. ${c.white}"${player.handle}. What'll it be?"`;
+  } else {
+    hrokGreeting = `${c.brown}  The barkeep, a grizzled dwarf named Hrok, sets down a tankard. ${c.white}"What'll it be, stranger?"`;
+  }
+
+  // World gossip from Hrok — occasional, drawn from live world state
+  let hrokGossip = null;
+  if (worldCtx && Math.random() < 0.65) {
+    const enemy = worldCtx.namedEnemies && worldCtx.namedEnemies.find(e => e.kills > 0);
+    const slayer = worldCtx.recentSlayers && worldCtx.recentSlayers.find(s => s.handle !== player.handle);
+    const top = worldCtx.topPlayer && worldCtx.topPlayer.handle !== player.handle ? worldCtx.topPlayer : null;
+    const gossipOptions = [];
+    if (enemy) {
+      gossipOptions.push(`${c.dgray}  Hrok leans on the bar. ${c.white}"${enemy.given_name}${enemy.title ? ', ' + enemy.title : ''} — that's killed ${enemy.kills} now. Whatever you do, stay out of the deep forest."${c.dgray} He goes back to wiping a cup.`);
+    }
+    if (slayer) {
+      gossipOptions.push(`${c.dgray}  Hrok jerks his thumb toward the door. ${c.white}"${slayer.handle} came through after slaying the dragon. Bought a round, didn't say much."${c.dgray} He shrugs. ${c.white}"Dragon slayers never do."`);
+    }
+    if (top) {
+      gossipOptions.push(`${c.dgray}  Hrok lowers his voice. ${c.white}"${top.handle}'s been the talk lately. Level ${top.level}."${c.dgray} He sets down a glass. ${c.white}"Keep hearing the name. Make of that what you will."`);
+    }
+    if (gossipOptions.length > 0) {
+      hrokGossip = gossipOptions[Math.floor(Math.random() * gossipOptions.length)];
+    }
+  }
+
   const lines = [
     ...renderBanner('tavern'),
-    `${c.white}  The tavern is dimly lit, filled with the smell of ale`,
-    `${c.white}  and the sound of quiet conversation...`,
+    hrokGreeting,
+    ...(hrokGossip ? [hrokGossip] : []),
     '',
     `${c.yellow}  Players in the Realm:`,
     divider('─', 62),
